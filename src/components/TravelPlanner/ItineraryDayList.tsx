@@ -200,7 +200,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
               return (
                 <div
                   key={`day-header-${item.dayNumber}`}
-                  className={`flex justify-between items-center mb-4 pr-0 pl-3 ${
+                  className={`flex justify-between items-center mb-4 pr-0 pl-2 ${
                     item.dayIndex > 0 ? "pt-6 mt-6 border-t border-gray-200" : "pt-2"
                   }`}
                   style={{
@@ -210,7 +210,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
                     width: '100%'
                   }}
                 >
-                  <h2 className="text-lg font-medium text-slate-700">
+                  <h2 className="text-xl font-medium text-slate-700">
                     {formatDate(item.date!)}
                   </h2>
                   <Button 
@@ -257,8 +257,8 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
       {days.map((day, index) => (
         <div key={day.dayNumber} className={`${index === 0 && days.length > 1 ? "pt-2" : ""}`}>
           {/* Show day header in "all" view mode */}
-          <div className="flex justify-between items-center mb-4 pr-0 pl-3">
-            <h2 className="text-lg font-medium text-slate-700">
+          <div className="flex justify-between items-center mb-4 pr-0 pl-2">
+            <h2 className="text-xl font-medium text-slate-700">
               {formatDate(day.date)}
             </h2>
             <Button 
