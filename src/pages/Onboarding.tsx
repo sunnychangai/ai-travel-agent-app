@@ -296,10 +296,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     switch (step) {
       case 1:
         return (
-          <div className="space-y-6 px-2">
+          <div className="space-y-4 px-2">
             <div>
               <h2 className="text-2xl font-bold">Welcome to AI Travel Assistant</h2>
-              <p className="text-gray-500 mt-2">Let's get to know you better to personalize your experience.</p>
+              <p className="text-gray-500 mt-1">Let's get to know you better to personalize your experience.</p>
             </div>
             <div className="space-y-4">
               <Label htmlFor="name">What's your name?</Label>
@@ -316,10 +316,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 2:
         return (
-          <div className="space-y-6 px-2">
+          <div className="space-y-4 px-2">
             <div>
               <h2 className="text-2xl font-bold">Travel Style</h2>
-              <p className="text-gray-500 mt-2">Tell us how you like to travel.</p>
+              <p className="text-gray-500 mt-1">Tell us how you like to travel.</p>
             </div>
             <div className="space-y-4">
               <div className="mb-4">
@@ -358,10 +358,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 3:
         return (
-          <div className="space-y-6 px-2">
+          <div className="space-y-4 px-2">
             <div>
               <h2 className="text-2xl font-bold">Activity Interests</h2>
-              <p className="text-gray-500 mt-2">What activities do you enjoy while traveling?</p>
+              <p className="text-gray-500 mt-1">What activities do you enjoy while traveling?</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {ACTIVITY_OPTIONS.map((option) => (
@@ -390,10 +390,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 4:
         return (
-          <div className="space-y-6 px-2">
+          <div className="space-y-4 px-2">
             <div>
               <h2 className="text-2xl font-bold">Travel Preferences</h2>
-              <p className="text-gray-500 mt-2">Select your preferences for a better travel experience.</p>
+              <p className="text-gray-500 mt-1">Select your preferences for a better travel experience.</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {PREFERENCE_OPTIONS.map((option) => (
@@ -422,10 +422,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 5:
         return (
-          <div className="space-y-6 px-2">
+          <div className="space-y-4 px-2">
             <div>
               <h2 className="text-2xl font-bold">Travel Budget</h2>
-              <p className="text-gray-500 mt-2">What's your typical budget for travel experiences?</p>
+              <p className="text-gray-500 mt-1">What's your typical budget for travel experiences?</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {BUDGET_OPTIONS.map((option) => (
@@ -483,7 +483,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             <X size={20} />
           </button>
           
-          <div className="mb-4">
+          <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-2xl font-bold">{STEP_TITLES[step-1]}</h1>
             </div>
