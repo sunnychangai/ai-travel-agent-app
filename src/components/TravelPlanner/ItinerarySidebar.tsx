@@ -168,9 +168,9 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   // Create an initial day when the component mounts if no days exist
   useEffect(() => {
     if (itineraryDays.length === 0 && typeof addDay === 'function') {
-      // Get today's date - for demo purposes, use March 17, 2025
+      // Get today's date - for demo purposes, use March 16, 2025
       // IMPORTANT: In production, replace this with: const today = new Date();
-      const today = new Date(2025, 2, 17); // Month is 0-indexed, so 2 = March
+      const today = new Date(2025, 2, 16); // Month is 0-indexed, so 2 = March
       
       // Format using date-fns for consistency and correctness
       const formattedDate = format(today, 'yyyy-MM-dd');
@@ -271,9 +271,9 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   const handleAddActivity = (dayNumber: number) => {
     // Handle case when no days exist in itinerary
     if (itineraryDays.length === 0) {
-      // Get today's date - for demo purposes, use March 17, 2025
+      // Get today's date - for demo purposes, use March 16, 2025
       // IMPORTANT: In production, replace this with: const today = new Date();
-      const today = new Date(2025, 2, 17); // Month is 0-indexed, so 2 = March
+      const today = new Date(2025, 2, 16); // Month is 0-indexed, so 2 = March
       
       // Format using date-fns for consistency and correctness
       const formattedDate = format(today, 'yyyy-MM-dd');
@@ -324,10 +324,10 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       date = parseISO(day.date);
       if (!isValid(date)) {
         console.error("Invalid date in day object:", day.date);
-        date = new Date(2025, 2, 17); // Fallback to March 17, 2025
+        date = new Date(2025, 2, 16); // Fallback to March 16, 2025
       }
     } else {
-      date = new Date(2025, 2, 17); // Default to March 17, 2025
+      date = new Date(2025, 2, 16); // Default to March 16, 2025
     }
     
     // Default time in 12-hour format
