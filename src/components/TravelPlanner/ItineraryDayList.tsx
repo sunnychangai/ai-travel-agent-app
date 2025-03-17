@@ -215,7 +215,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
               return (
                 <div
                   key={activity.id || `activity-${activity.title}-${Math.random()}`}
-                  className="space-y-4 px-3 pr-5"
+                  className="space-y-4 px-3 pr-2"
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -264,7 +264,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
           )}
           
           {/* Sort activities by time before rendering */}
-          <div className="space-y-4 px-3 pr-5">
+          <div className="space-y-4 px-3 pr-2">
             {sortActivitiesByTime(day.activities).map((activity) => (
               <ActivityCard
                 key={activity.id || `activity-${activity.title}-${activity.time}`}
