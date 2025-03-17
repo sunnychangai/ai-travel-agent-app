@@ -485,7 +485,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
-              <h1 className="text-2xl font-bold">{STEP_TITLES[step-1]}</h1>
+              {/* Removed the redundant title that was here */}
             </div>
             
             {/* Navigation tabs */}
