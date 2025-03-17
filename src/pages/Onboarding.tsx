@@ -296,12 +296,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     switch (step) {
       case 1:
         return (
-          <div className="space-y-6">
-            <div className="space-y-2">
+          <div className="space-y-4 px-2">
+            <div>
               <h2 className="text-2xl font-bold">Welcome to AI Travel Assistant</h2>
-              <p className="text-gray-500">Let's get to know you better to personalize your experience.</p>
+              <p className="text-gray-500 mt-1">Let's get to know you better to personalize your experience.</p>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-4">
               <Label htmlFor="name">What's your name?</Label>
               <Input
                 id="name"
@@ -316,10 +316,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 2:
         return (
-          <div className="space-y-6">
-            <div className="space-y-2">
+          <div className="space-y-4 px-2">
+            <div>
               <h2 className="text-2xl font-bold">Travel Style</h2>
-              <p className="text-gray-500">Tell us how you like to travel.</p>
+              <p className="text-gray-500 mt-1">Tell us how you like to travel.</p>
             </div>
             <div className="space-y-4">
               <div className="mb-4">
@@ -358,10 +358,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 3:
         return (
-          <div className="space-y-6">
-            <div className="space-y-2">
+          <div className="space-y-4 px-2">
+            <div>
               <h2 className="text-2xl font-bold">Activity Interests</h2>
-              <p className="text-gray-500">What activities do you enjoy while traveling?</p>
+              <p className="text-gray-500 mt-1">What activities do you enjoy while traveling?</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {ACTIVITY_OPTIONS.map((option) => (
@@ -390,10 +390,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 4:
         return (
-          <div className="space-y-6">
-            <div className="space-y-2">
+          <div className="space-y-4 px-2">
+            <div>
               <h2 className="text-2xl font-bold">Travel Preferences</h2>
-              <p className="text-gray-500">Select your preferences for a better travel experience.</p>
+              <p className="text-gray-500 mt-1">Select your preferences for a better travel experience.</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {PREFERENCE_OPTIONS.map((option) => (
@@ -422,10 +422,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 5:
         return (
-          <div className="space-y-6">
-            <div className="space-y-2">
+          <div className="space-y-4 px-2">
+            <div>
               <h2 className="text-2xl font-bold">Travel Budget</h2>
-              <p className="text-gray-500">What's your typical budget for travel experiences?</p>
+              <p className="text-gray-500 mt-1">What's your typical budget for travel experiences?</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {BUDGET_OPTIONS.map((option) => (
@@ -462,11 +462,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             className="absolute inset-0 bg-cover bg-center" 
             style={{ backgroundImage: `url(${BACKGROUND_IMAGES[step-1]})` }}
           >
-            <div className="absolute inset-0 bg-black/30 p-10 flex flex-col justify-end">
-              <h2 className="text-3xl font-bold text-white mb-3">
+            <div className="absolute inset-0 bg-black/30 p-8 flex flex-col justify-end">
+              <h2 className="text-3xl font-bold text-white mb-2">
                 {step === 1 ? 'Welcome' : STEP_TITLES[step-1]}
               </h2>
-              <p className="text-white/90 text-lg">
+              <p className="text-white/80 text-lg">
                 {STEP_DESCRIPTIONS[step-1]}
               </p>
             </div>
@@ -474,7 +474,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         </div>
 
         {/* Right side - Form content */}
-        <div className="w-full md:w-3/5 bg-white p-8 relative">
+        <div className="w-full md:w-3/5 bg-white p-8 px-12 relative">
           <button 
             onClick={() => onComplete ? onComplete() : navigate('/app')} 
             className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
@@ -483,9 +483,13 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             <X size={20} />
           </button>
           
-          {/* Navigation tabs with reduced spacing */}
-          <div className="mb-4">
-            <div className="flex space-x-2 overflow-x-auto">
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              {/* Removed the redundant title that was here */}
+            </div>
+            
+            {/* Navigation tabs */}
+            <div className="flex justify-center space-x-2 overflow-x-auto pb-2">
               {STEP_TITLES.map((title, i) => (
                 <button
                   key={i}
@@ -503,11 +507,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             </div>
           </div>
           
-          <div className="h-[400px] overflow-y-auto px-4">
+          <div className="h-[350px] overflow-y-auto pr-2 pl-4">
             {renderStep()}
           </div>
           
-          <div className="flex justify-between mt-6">
+          <div className="flex justify-between mt-8">
             <Button
               variant="outline"
               onClick={handleBack}
