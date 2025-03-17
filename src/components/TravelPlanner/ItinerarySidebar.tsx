@@ -526,7 +526,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   return (
     <div className="h-full flex flex-col bg-gray-150">
       {/* Itinerary header */}
-      <div className="px-8 pt-5 pb-4 border-b bg-gray-150">
+      <div className="px-8 pt-5 pb-4 border-b bg-white">
         <div className="flex flex-col">
           <h1 className="text-2xl font-bold text-slate-800 mb-4">
             {isEditingTitle ? (
@@ -577,7 +577,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
 
       {/* Day selector area - Only show in day view */}
       {viewMode === "day" && (
-        <div className="px-8 py-4 bg-gray-150 flex justify-between items-center border-b">
+        <div className="px-8 py-4 bg-white flex justify-between items-center border-b">
           <h3 className="text-lg font-medium text-slate-700">Select Day:</h3>
           
           {/* Day selector */}
