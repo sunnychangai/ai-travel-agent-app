@@ -160,29 +160,35 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         throw new Error("User not authenticated");
       }
       
-      console.log("Saving preferences:", {
+      // Create a payload that matches the database schema
+      const payload: {
+        user_id: string;
+        name: string;
+        travel_style: string[];
+        budget: string;
+        dream_destinations: string;
+        created_at: string;
+        preferences?: string[];
+      } = {
         user_id: user.id,
         name: preferences.name,
         travel_style: preferences.travelStyle,
-        activities: preferences.activities,
-        preferences: preferences.preferences,
-        budget: preferences.budget,
-        dream_destinations: preferences.dreamDestinations,
+        // Handle the missing columns with fallback to empty arrays/strings
+        budget: preferences.budget || '',
+        dream_destinations: preferences.dreamDestinations || '',
         created_at: new Date().toISOString()
-      });
+      };
+      
+      // Add preferences data if the column exists
+      if (preferences.preferences && preferences.preferences.length > 0) {
+        payload.preferences = preferences.preferences;
+      }
+      
+      console.log("Saving user preferences:", payload);
       
       const { error } = await supabase
         .from('user_preferences')
-        .upsert({
-          user_id: user.id,
-          name: preferences.name,
-          travel_style: preferences.travelStyle,
-          activities: preferences.activities,
-          preferences: preferences.preferences,
-          budget: preferences.budget,
-          dream_destinations: preferences.dreamDestinations,
-          created_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        .upsert(payload, { onConflict: 'user_id' });
 
       if (error) {
         console.error("Supabase error:", error);
