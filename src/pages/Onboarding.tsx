@@ -496,7 +496,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   className={`px-4 py-2 rounded-full text-sm whitespace-nowrap ${
                     step === i+1 
                       ? 'bg-gray-900 text-white' 
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                   onClick={() => i+1 < step && setStep(i+1)}
                   disabled={i+1 > step}
