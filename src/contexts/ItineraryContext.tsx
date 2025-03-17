@@ -1,9 +1,35 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { Activity, ItineraryDay, SuggestionItem } from '../types';
+
+// Storage keys
+const STORAGE_KEYS = {
+  ITINERARY_DAYS: 'itinerary_days_session',
+  CURRENT_ITINERARY_ID: 'current_itinerary_id_session'
+};
 
 // Simple utility function to generate a unique ID
 const generateId = (): string => {
   return Math.random().toString(36).substring(2, 15);
+};
+
+// Utility function to safely get items from sessionStorage
+const getSessionItem = <T,>(key: string, defaultValue: T): T => {
+  try {
+    const item = sessionStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultValue;
+  } catch (error) {
+    console.error(`Error retrieving ${key} from sessionStorage:`, error);
+    return defaultValue;
+  }
+};
+
+// Utility function to safely set items in sessionStorage
+const setSessionItem = (key: string, value: any): void => {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error(`Error saving ${key} to sessionStorage:`, error);
+  }
 };
 
 interface ItineraryContextType {
@@ -22,6 +48,7 @@ interface ItineraryContextType {
   saveItinerary: (name: string) => Promise<string | null>;
   loadItinerary: (itineraryId: string) => Promise<void>;
   getUserItineraries: () => Promise<any[]>;
+  clearSessionStorage: () => void;
 }
 
 const ItineraryContext = createContext<ItineraryContextType | undefined>(undefined);
@@ -37,10 +64,25 @@ export const ItineraryProvider: React.FC<ItineraryProviderProps> = ({
   initialItinerary = [],
   initialSuggestions = [],
 }) => {
-  const [itineraryDays, setItineraryDays] = useState<ItineraryDay[]>(initialItinerary);
+  // Initialize state from sessionStorage if available, otherwise use props
+  const [itineraryDays, setItineraryDays] = useState<ItineraryDay[]>(
+    () => getSessionItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, initialItinerary)
+  );
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>(initialSuggestions);
   const [isLoading, setIsLoading] = useState(false);
-  const [currentItineraryId, setCurrentItineraryId] = useState<string | null>(null);
+  const [currentItineraryId, setCurrentItineraryId] = useState<string | null>(
+    () => getSessionItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null)
+  );
+
+  // Update sessionStorage whenever itineraryDays changes
+  useEffect(() => {
+    setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, itineraryDays);
+  }, [itineraryDays]);
+
+  // Update sessionStorage whenever currentItineraryId changes
+  useEffect(() => {
+    setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, currentItineraryId);
+  }, [currentItineraryId]);
 
   // Add an activity to a specific day
   const addActivity = useCallback((dayNumber: number, activity: Omit<Activity, 'id'>) => {
@@ -190,15 +232,20 @@ export const ItineraryProvider: React.FC<ItineraryProviderProps> = ({
       // Simulate an API call delay
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      const itineraryId = generateId();
+      // Generate a new ID if one doesn't exist yet
+      const itineraryId = currentItineraryId || generateId();
       setCurrentItineraryId(itineraryId);
       
-      // Store in localStorage for persistence
+      // Store in localStorage for persistence across browser sessions
       localStorage.setItem('savedItinerary', JSON.stringify({
         id: itineraryId,
         name,
         days: itineraryDays,
       }));
+      
+      // Also store in sessionStorage for current session
+      setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, itineraryDays);
+      setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itineraryId);
       
       console.log(`Saved itinerary "${name}" with ID ${itineraryId}`);
       return itineraryId;
@@ -208,7 +255,7 @@ export const ItineraryProvider: React.FC<ItineraryProviderProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [itineraryDays]);
+  }, [itineraryDays, currentItineraryId]);
 
   // Load an itinerary (mock implementation)
   const loadItinerary = useCallback(async (itineraryId: string): Promise<void> => {
@@ -218,13 +265,33 @@ export const ItineraryProvider: React.FC<ItineraryProviderProps> = ({
       // Simulate an API call delay
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Get from localStorage
+      // First check sessionStorage
+      const sessionItineraryId = getSessionItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null);
+      const sessionDays = getSessionItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, []);
+      
+      // If the session has the requested itinerary, use it
+      if (sessionItineraryId === itineraryId && sessionDays.length > 0) {
+        setItineraryDays(sessionDays);
+        setCurrentItineraryId(itineraryId);
+        console.log('Loaded itinerary from session storage');
+        return;
+      }
+      
+      // Otherwise, try to load from localStorage
       const savedData = localStorage.getItem('savedItinerary');
       
       if (savedData) {
-        const { days } = JSON.parse(savedData);
-        setItineraryDays(days);
-        setCurrentItineraryId(itineraryId);
+        const { id, days } = JSON.parse(savedData);
+        if (id === itineraryId) {
+          setItineraryDays(days);
+          setCurrentItineraryId(itineraryId);
+          
+          // Update sessionStorage with the loaded data
+          setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, days);
+          setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itineraryId);
+          
+          console.log('Loaded itinerary from local storage');
+        }
       }
     } catch (error) {
       console.error('Error loading itinerary:', error);
@@ -241,20 +308,53 @@ export const ItineraryProvider: React.FC<ItineraryProviderProps> = ({
       // Simulate an API call delay
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Get from localStorage
+      const itineraries = [];
+      
+      // Check sessionStorage first
+      const sessionItineraryId = getSessionItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null);
+      const sessionDays = getSessionItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, []);
+      
+      if (sessionItineraryId && sessionDays.length > 0) {
+        itineraries.push({
+          id: sessionItineraryId,
+          name: "Session Itinerary",
+          days: sessionDays,
+          source: 'session'
+        });
+      }
+      
+      // Then check localStorage
       const savedData = localStorage.getItem('savedItinerary');
       
       if (savedData) {
         const data = JSON.parse(savedData);
-        return [data];
+        
+        // Only add if not already in the list
+        if (!itineraries.some(item => item.id === data.id)) {
+          itineraries.push({
+            ...data,
+            source: 'local'
+          });
+        }
       }
       
-      return [];
+      return itineraries;
     } catch (error) {
       console.error('Error getting user itineraries:', error);
       return [];
     } finally {
       setIsLoading(false);
+    }
+  }, []);
+
+  // Clear session storage
+  const clearSessionStorage = useCallback(() => {
+    try {
+      sessionStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+      console.log('Session storage cleared');
+    } catch (error) {
+      console.error('Error clearing session storage:', error);
     }
   }, []);
 
@@ -276,6 +376,7 @@ export const ItineraryProvider: React.FC<ItineraryProviderProps> = ({
         saveItinerary,
         loadItinerary,
         getUserItineraries,
+        clearSessionStorage,
       }}
     >
       {children}
