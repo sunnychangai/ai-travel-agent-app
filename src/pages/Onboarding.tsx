@@ -391,7 +391,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           
           {/* Navigation tabs */}
           <div className="pt-16 pb-4 px-8">
-            <div className="flex justify-between mb-2 gap-2">
+            <div className="flex justify-between mb-2 gap-4 px-4">
               {STEP_TITLES.map((title, i) => (
                 <button
                   key={i}
@@ -416,9 +416,18 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               {step !== 1 && <p className="text-gray-500 text-sm">{STEP_DESCRIPTIONS[step-1]}</p>}
             </div>
             
-            <div className="py-1">
-              {renderStep()}
-            </div>
+            <AnimatePresence mode="wait">
+              <motion.div 
+                key={step}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.3 }}
+                className="py-1"
+              >
+                {renderStep()}
+              </motion.div>
+            </AnimatePresence>
           </div>
           
           {/* Footer with buttons */}
