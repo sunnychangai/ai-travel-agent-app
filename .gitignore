@@ -64,5 +64,6 @@ dist-ssr
 
 core
 
-.github/
+# No longer excluding .github/ directory to allow CI/CD workflows
+# .github/
 

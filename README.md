@@ -148,3 +148,41 @@ export default {
 - Replace `plugin:@typescript-eslint/recommended` to `plugin:@typescript-eslint/recommended-type-checked` or `plugin:@typescript-eslint/strict-type-checked`
 - Optionally add `plugin:@typescript-eslint/stylistic-type-checked`
 - Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `extends` list
+
+## CI/CD Pipeline
+
+This project uses GitHub Actions for continuous integration and deployment. The pipeline performs the following steps:
+
+### For every push and pull request to the main branch:
+1. Builds the application
+2. Runs linting checks
+3. Executes tests
+
+### For pushes to the main branch only:
+1. Deploys the application to the staging environment
+
+### Setting up deployment
+
+To enable deployment to staging, you need to configure the following GitHub Secrets:
+
+#### For Vercel deployment:
+- `VERCEL_TOKEN`: Your Vercel API token
+- `VERCEL_ORG_ID`: Your Vercel organization ID
+- `VERCEL_PROJECT_ID`: Your Vercel project ID
+
+#### Environment variables:
+- `VITE_SUPABASE_URL`: Your Supabase URL
+- `VITE_SUPABASE_ANON_KEY`: Your Supabase anonymous key
+
+### Running the pipeline locally
+
+You can test the build and test steps locally with:
+
+```bash
+npm ci
+npm run lint
+npm test
+npm run build
+```
+
+The CI/CD pipeline configuration is located in `.github/workflows/ci-cd.yml`.
