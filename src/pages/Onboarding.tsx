@@ -411,10 +411,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           </div>
           
           {/* Main content */}
-          <div className="flex-1 px-8 overflow-y-auto">
-            <div className="mb-5">
+          <div className="flex-1 px-8 overflow-y-auto flex flex-col justify-center">
+            <div className="mb-4 text-center">
               <h2 className="text-2xl font-semibold text-gray-900">{step === 1 ? 'What should we call you?' : STEP_TITLES[step-1]}</h2>
-              <p className="text-gray-500 text-sm mt-1">{STEP_DESCRIPTIONS[step-1]}</p>
+              {step !== 1 && <p className="text-gray-500 text-sm mt-1">{STEP_DESCRIPTIONS[step-1]}</p>}
             </div>
             
             <div className="py-1">
