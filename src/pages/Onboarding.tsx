@@ -483,7 +483,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             <X size={20} />
           </button>
           
-          <div className="mb-8">
+          <div className="mb-4">
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-2xl font-bold">{STEP_TITLES[step-1]}</h1>
             </div>
