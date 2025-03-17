@@ -193,7 +193,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
                   }}
                 >
                   <h2 className="text-lg font-medium text-slate-700">
-                    Day {item.dayNumber} - {new Date(item.date!).toLocaleDateString('en-US', { 
+                    {new Date(item.date!).toLocaleDateString('en-US', { 
                       weekday: 'long',
                     })}, {new Date(item.date!).toLocaleDateString('en-US', { 
                       month: 'long', 
@@ -246,7 +246,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
           {/* Show day header in "all" view mode */}
           <div className="flex justify-between items-center mb-4 pr-5 pl-3">
             <h2 className="text-lg font-medium text-slate-700">
-              Day {day.dayNumber} - {new Date(day.date).toLocaleDateString('en-US', { 
+              {new Date(day.date).toLocaleDateString('en-US', { 
                 weekday: 'long', 
               })}, {new Date(day.date).toLocaleDateString('en-US', { 
                 month: 'long', 
