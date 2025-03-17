@@ -614,7 +614,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
           
           <div className="flex items-center justify-between">
             <div className="flex items-center text-slate-400">
-              <CalendarIcon className="h-5 w-5 mr-2 text-slate-400" />
+              <CalendarIcon className="h-4 w-4 mr-2 text-slate-400" />
               <span className="text-sm">
                 {itineraryDays.length > 0 
                   ? itineraryDays.length === 1 
