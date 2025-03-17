@@ -255,7 +255,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               placeholder="Enter your name"
               value={preferences.name}
               onChange={handleInputChange}
-              className="bg-white/90 backdrop-blur-sm text-lg h-10 rounded-xl py-0"
+              className="bg-white/90 backdrop-blur-sm text-lg h-10 rounded-xl py-0 border-gray-400"
               aria-label="Your name"
             />
           </div>
