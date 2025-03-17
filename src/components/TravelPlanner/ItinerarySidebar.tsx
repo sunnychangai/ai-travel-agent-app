@@ -480,7 +480,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               variant="outline"
               size="sm"
               onClick={toggleViewMode}
-              className="h-8 px-3 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
+              className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
             >
               <ListIcon className="h-4 w-4 mr-1.5" />
               {viewMode === "day" ? "List View" : "Day View"}
@@ -500,7 +500,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               value={selectedDay}
               onValueChange={setSelectedDay}
             >
-              <SelectTrigger className="w-[260px] h-10 border border-slate-300 rounded">
+              <SelectTrigger className="w-[260px] h-10 border border-slate-200 rounded shadow-sm">
                 <SelectValue placeholder="Select a day" />
               </SelectTrigger>
               <SelectContent>
@@ -528,7 +528,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
             const dayNum = selectedDay !== "all" ? parseInt(selectedDay) : 0;
             handleAddActivity(dayNum);
           }}
-          className="h-10 px-4 rounded border-slate-200"
+          className="h-10 px-4 rounded border-slate-200 shadow-sm hover:shadow-md transition-all"
         >
           <Plus className="h-4 w-4 mr-2" />
           Add Item
