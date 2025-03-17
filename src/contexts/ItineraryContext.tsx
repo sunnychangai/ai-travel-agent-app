@@ -14,7 +14,7 @@ interface ItineraryContextType {
   addActivity: (dayNumber: number, activity: Omit<Activity, 'id'>) => void;
   updateActivity: (dayNumber: number, activityId: string, updatedActivity: Partial<Activity>) => void;
   deleteActivity: (dayNumber: number, activityId: string) => void;
-  addDay: (date: string) => void;
+  addDay: (day: ItineraryDay) => void;
   deleteDay: (dayNumber: number) => void;
   acceptSuggestion: (suggestion: SuggestionItem, dayNumber: number) => void;
   rejectSuggestion: (suggestionId: string) => void;
@@ -133,33 +133,19 @@ export const ItineraryProvider: React.FC<ItineraryProviderProps> = ({
   }, []);
 
   // Add a new day to the itinerary
-  const addDay = useCallback((date: string) => {
+  const addDay = (day: ItineraryDay) => {
     setItineraryDays(prevDays => {
-      // Find the highest day number
-      const maxDayNumber = prevDays.reduce(
-        (max, day) => Math.max(max, day.dayNumber),
-        0
-      );
-      
-      // Check if this date already exists
-      const dateExists = prevDays.some(day => day.date === date);
-      
-      if (dateExists) {
-        console.log(`Day with date ${date} already exists`);
-        return prevDays;
+      // Check if a day with this number already exists
+      const existingDay = prevDays.find(d => d.dayNumber === day.dayNumber);
+      if (existingDay) {
+        // Replace the existing day
+        return prevDays.map(d => d.dayNumber === day.dayNumber ? day : d);
+      } else {
+        // Add the new day
+        return [...prevDays, day];
       }
-      
-      // Create a new day with the next day number
-      const newDay: ItineraryDay = {
-        date,
-        dayNumber: maxDayNumber + 1,
-        activities: [],
-      };
-      
-      // Add the new day and sort by day number
-      return [...prevDays, newDay].sort((a, b) => a.dayNumber - b.dayNumber);
     });
-  }, []);
+  };
 
   // Remove a day from the itinerary
   const deleteDay = useCallback((dayNumber: number) => {

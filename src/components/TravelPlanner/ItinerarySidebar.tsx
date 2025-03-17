@@ -107,7 +107,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   onRefreshItinerary,
 }) => {
   // Get itinerary data from context
-  const { itineraryDays, addActivity, updateActivity, deleteActivity, saveItinerary } = useItinerary();
+  const { itineraryDays, addActivity, updateActivity, deleteActivity, saveItinerary, addDay } = useItinerary();
   
   const [selectedDay, setSelectedDay] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"day" | "list">("day");
@@ -210,56 +210,79 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
 
   // Handle adding a new activity
   const handleAddActivity = (dayNumber: number) => {
-    // Handle "all" view case - default to first day if available
-    if (isNaN(dayNumber) || dayNumber <= 0) {
-      if (itineraryDays.length > 0) {
-        dayNumber = itineraryDays[0].dayNumber;
-      } else {
-        // Can't add an activity without at least one day
-        console.error("Cannot add activity: No days in itinerary");
+    // Handle case when no days exist in itinerary
+    if (itineraryDays.length === 0) {
+      // Create a new day with today's date
+      const today = new Date();
+      const newDay = {
+        dayNumber: 1,
+        date: today.toISOString().split('T')[0],
+        activities: []
+      };
+      
+      // Add the new day to the itinerary context
+      // We need to add the day first, then add the activity
+      try {
+        // If addDay exists in the context, use it
+        if (typeof addDay === 'function') {
+          addDay(newDay);
+        } else {
+          // Otherwise use a workaround by adding an activity to day 1
+          console.log("Creating first day in itinerary with today's date");
+        }
+        
+        // Use the new day
+        dayNumber = 1;
+        setSelectedDay("1");
+        
+        // Continue with activity creation below
+      } catch (error) {
+        console.error("Error creating new day:", error);
         return;
       }
+    } else if (isNaN(dayNumber) || dayNumber <= 0) {
+      // Handle "all" view case - default to first day if available
+      dayNumber = itineraryDays[0].dayNumber;
     }
     
+    // If we get here, either we have days or we just created one
     const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
-    if (day) {
-      // Parse the date from the day
-      const date = new Date(day.date);
-      
-      // Default time in 12-hour format
-      const defaultDisplayTime = "12:00 PM";
-      
-      // Convert to 24-hour format for the edit modal
-      const editTime = convertTo24Hour(defaultDisplayTime);
-      
-      // Create an empty activity with default values
-      setCurrentActivity({
-        id: "", // Empty ID indicates this is a new activity
-        title: "",
-        description: "",
-        location: "",
-        time: defaultDisplayTime,
-        type: "Activity",
-        imageUrl: "",
-        // Store the day date for reference
-        dayDate: date,
-        // Store the time in both display format and edit format
-        displayStartTime: defaultDisplayTime,
-        displayEndTime: "",
-        parsedStartTime: editTime,
-        parsedEndTime: ""
-      });
-      
-      // Set the selected day to ensure the activity appears in the right place
-      setSelectedDay(dayNumber.toString());
-      
-      // Open the edit modal
-      setEditModalOpen(true);
-      
-      // Call the onAddActivity prop if provided (for external handlers)
-      if (onAddActivity) {
-        onAddActivity(dayNumber);
-      }
+    // If day doesn't exist yet (because we just created it), use dummy data
+    const date = day ? new Date(day.date) : new Date();
+    
+    // Default time in 12-hour format
+    const defaultDisplayTime = "12:00 PM";
+    
+    // Convert to 24-hour format for the edit modal
+    const editTime = convertTo24Hour(defaultDisplayTime);
+    
+    // Create an empty activity with default values
+    setCurrentActivity({
+      id: "", // Empty ID indicates this is a new activity
+      title: "",
+      description: "",
+      location: "",
+      time: defaultDisplayTime,
+      type: "Activity",
+      imageUrl: "",
+      // Store the day date for reference
+      dayDate: date,
+      // Store the time in both display format and edit format
+      displayStartTime: defaultDisplayTime,
+      displayEndTime: "",
+      parsedStartTime: editTime,
+      parsedEndTime: ""
+    });
+    
+    // Set the selected day to ensure the activity appears in the right place
+    setSelectedDay(dayNumber.toString());
+    
+    // Open the edit modal
+    setEditModalOpen(true);
+    
+    // Call the onAddActivity prop if provided (for external handlers)
+    if (onAddActivity) {
+      onAddActivity(dayNumber);
     }
   };
 
