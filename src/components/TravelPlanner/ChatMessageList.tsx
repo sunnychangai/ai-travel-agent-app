@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useEffect, useRef, memo } from "react";
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
+import { Virtuoso } from "react-virtuoso";
 
 type Message = {
   id: string;
@@ -13,9 +15,80 @@ type Message = {
 interface ChatMessageListProps {
   messages?: Message[];
   className?: string;
+  isLoading?: boolean;
 }
 
-export default function ChatMessageList({
+const TypingIndicator = memo(() => (
+  <div className="flex items-center space-x-1 px-2">
+    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+  </div>
+));
+
+const ChatMessage = memo(({ message, isFirstMessage }: { message: Message; isFirstMessage?: boolean }) => (
+  <div
+    className={cn(
+      "flex w-full items-start gap-3",
+      message.sender === "user" ? "justify-end pr-8" : "pl-1",
+      isFirstMessage ? "pt-4" : ""
+    )}
+  >
+    {message.sender === "ai" && (
+      <Avatar className="h-8 w-8 flex-shrink-0 mt-1">
+        <AvatarImage
+          src="https://api.dicebear.com/7.x/avataaars/svg?seed=travel-ai"
+          alt="AI"
+        />
+        <AvatarFallback>AI</AvatarFallback>
+      </Avatar>
+    )}
+
+    <div
+      className={cn(
+        "p-3 mt-1 break-words shadow-sm",
+        message.sender === "user"
+          ? "bg-blue-500 text-white rounded-tl-2xl rounded-tr-md rounded-bl-2xl rounded-br-2xl max-w-[65%]"
+          : "bg-gray-200 text-gray-900 rounded-tl-md rounded-tr-2xl rounded-bl-2xl rounded-br-2xl max-w-[75%] border border-gray-200"
+      )}
+    >
+      <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+      <p className={cn(
+        "text-xs mt-1",
+        message.sender === "user" ? "text-blue-100" : "text-gray-500"
+      )}>
+        {message.timestamp.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+      </p>
+    </div>
+
+    {message.sender === "user" && (
+      <Avatar className="h-8 w-8 flex-shrink-0 mt-1 mr-2">
+        <AvatarImage
+          src="https://api.dicebear.com/7.x/avataaars/svg?seed=user"
+          alt="User"
+        />
+        <AvatarFallback>U</AvatarFallback>
+      </Avatar>
+    )}
+  </div>
+));
+
+const preloadAvatars = () => {
+  const urls = [
+    "https://api.dicebear.com/7.x/avataaars/svg?seed=travel-ai",
+    "https://api.dicebear.com/7.x/avataaars/svg?seed=user"
+  ];
+  
+  urls.forEach(url => {
+    const img = new Image();
+    img.src = url;
+  });
+};
+
+function ChatMessageList({
   messages = [
     {
       id: "1",
@@ -40,57 +113,50 @@ export default function ChatMessageList({
     },
   ],
   className,
+  isLoading = false,
 }: ChatMessageListProps) {
+  useEffect(() => {
+    preloadAvatars();
+  }, []);
+
   return (
-    <ScrollArea className={cn("h-full w-full bg-white p-4", className)}>
-      <div className="flex flex-col space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={cn(
-              "flex items-start gap-3 max-w-[80%]",
-              message.sender === "user" ? "ml-auto" : "",
-            )}
-          >
-            {message.sender === "ai" && (
-              <Avatar className="h-8 w-8">
-                <AvatarImage
-                  src="https://api.dicebear.com/7.x/avataaars/svg?seed=travel-ai"
-                  alt="AI"
-                />
-                <AvatarFallback>AI</AvatarFallback>
-              </Avatar>
-            )}
-
-            <div
-              className={cn(
-                "rounded-lg p-3",
-                message.sender === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted",
-              )}
-            >
-              <p className="text-sm">{message.content}</p>
-              <p className="text-xs mt-1 opacity-70">
-                {message.timestamp.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-            </div>
-
-            {message.sender === "user" && (
-              <Avatar className="h-8 w-8">
-                <AvatarImage
-                  src="https://api.dicebear.com/7.x/avataaars/svg?seed=user"
-                  alt="User"
-                />
-                <AvatarFallback>U</AvatarFallback>
-              </Avatar>
-            )}
+    <div className={cn("h-full w-full bg-white overflow-hidden", className)}>
+      <Virtuoso
+        className="h-full px-4 pr-10 overflow-x-hidden pt-3"
+        style={{ overflowX: 'hidden' }}
+        data={messages}
+        followOutput="auto"
+        initialTopMostItemIndex={messages.length - 1}
+        itemContent={(index, message) => (
+          <div className="py-2 w-full overflow-hidden">
+            <ChatMessage 
+              message={message} 
+              isFirstMessage={index === 0} 
+            />
           </div>
-        ))}
-      </div>
-    </ScrollArea>
+        )}
+        components={{
+          Header: () => <div className="h-2" />,
+          Footer: () => isLoading ? (
+            <div className="py-2 pl-1">
+              <div className="flex items-start gap-3">
+                <Avatar className="h-8 w-8 flex-shrink-0 mt-1">
+                  <AvatarImage
+                    src="https://api.dicebear.com/7.x/avataaars/svg?seed=travel-ai"
+                    alt="AI"
+                  />
+                  <AvatarFallback>AI</AvatarFallback>
+                </Avatar>
+                <div className="rounded-tl-md rounded-tr-2xl rounded-bl-2xl rounded-br-2xl p-3 bg-gray-200 min-w-[60px] min-h-[40px] flex items-center shadow-sm border border-gray-200">
+                  <TypingIndicator />
+                </div>
+              </div>
+            </div>
+          ) : null
+        }}
+      />
+    </div>
   );
 }
+
+export default memo(ChatMessageList);

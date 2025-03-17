@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import ChatMessageList from "./ChatMessageList";
 import ChatInputArea from "./ChatInputArea";
 import { cn } from "../../lib/utils";
+import { useUserPreferences } from "../../contexts/UserPreferencesContext";
 
 type Message = {
   id: string;
@@ -19,38 +20,43 @@ interface ChatInterfaceProps {
 
 export default function ChatInterface({
   className,
-  initialMessages = [
-    {
-      id: "1",
-      content:
-        "Hi there! I'm your AI travel assistant. Where would you like to go on your next trip?",
-      sender: "ai",
-      timestamp: new Date(Date.now() - 60000 * 5),
-    },
-    {
-      id: "2",
-      content:
-        "I'm planning a trip to Paris for a week in June. Can you help me create an itinerary?",
-      sender: "user",
-      timestamp: new Date(Date.now() - 60000 * 3),
-    },
-    {
-      id: "3",
-      content:
-        "Absolutely! Paris in June is beautiful. Let's create a wonderful itinerary for you. How many days will you be staying, and are there any specific attractions you definitely want to visit?",
-      sender: "ai",
-      timestamp: new Date(Date.now() - 60000),
-    },
-  ],
+  initialMessages,
   onSendMessage = () => {},
   isLoading = false,
 }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const { userPreferences } = useUserPreferences();
+  const [messages, setMessages] = useState<Message[]>([]);
   const [suggestions, setSuggestions] = useState([
     { id: "1", text: "I'll be there for 7 days" },
     { id: "2", text: "I want to see the Eiffel Tower" },
     { id: "3", text: "I'm interested in art museums" },
   ]);
+
+  // Set initial messages based on user preferences
+  useEffect(() => {
+    if (initialMessages) {
+      setMessages(initialMessages);
+    } else if (userPreferences) {
+      const userName = userPreferences.name.split(' ')[0]; // Get first name
+      setMessages([
+        {
+          id: "1",
+          content: `Hi ${userName}! I'm your AI travel assistant. I can help you plan your trip. Where would you like to go?`,
+          sender: "ai",
+          timestamp: new Date(),
+        },
+      ]);
+    } else {
+      setMessages([
+        {
+          id: "1",
+          content: "Hi there! I'm your AI travel assistant. I can help you plan your trip. Where would you like to go?",
+          sender: "ai",
+          timestamp: new Date(),
+        },
+      ]);
+    }
+  }, [initialMessages, userPreferences]);
 
   const handleSendMessage = (message: string) => {
     // Add user message

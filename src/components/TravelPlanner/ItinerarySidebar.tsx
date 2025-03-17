@@ -1,24 +1,63 @@
-import React, { useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import ItineraryDayList from "./ItineraryDayList";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+// Type imports
+import { Activity, ItineraryDay } from "../../types";
+
+// Hook imports
+import { useItinerary } from '../../contexts/ItineraryContext';
+import { useNavigate } from 'react-router-dom';
+import { useEditableContent } from "../../hooks/useEditableContent";
+
+// Utility imports
+import { format, isValid, isToday } from 'date-fns';
+import { convertTo24Hour, convertToAMPM } from "../../utils/timeUtils";
+import { cn } from '../../lib/utils';
+
+// Component imports
+import ActivityCard from './ActivityCard';
+import ItineraryDayList from './ItineraryDayList';
 import ActivityEditModal from "./ActivityEditModal";
-import SuggestionsList from "./SuggestionsList";
 import ItineraryActions from "./ItineraryActions";
+import DaySelector from './DaySelector';
+
+// UI component imports
+import { Button } from '../ui/button';
+import { Skeleton } from '../ui/skeleton';
+import { Calendar } from '../ui/calendar';
 import { ScrollArea } from "../ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 
-interface Activity {
-  id: string;
-  title: string;
-  description: string;
-  location: string;
-  time: string;
-  imageUrl?: string;
-}
+// Icon imports
+import { 
+  MoveRight, 
+  Calendar as CalendarIcon, 
+  Download,
+  ListIcon, 
+  Edit2, 
+  RefreshCw, 
+  MoreHorizontal, 
+  CalendarDays, 
+  Plus, 
+  Save, 
+  Share, 
+  Printer, 
+  Wand2,
+  ListTodo
+} from 'lucide-react';
 
-interface ItineraryDay {
-  date: string;
-  dayNumber: number;
-  activities: Activity[];
+// Add HMR support
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    // Force page refresh when this module is updated
+    window.location.reload();
+  });
 }
 
 interface SuggestionItem {
@@ -31,14 +70,10 @@ interface SuggestionItem {
 }
 
 interface ItinerarySidebarProps {
-  days?: ItineraryDay[];
-  suggestions?: SuggestionItem[];
-  onAddActivity?: (dayNumber: number) => void;
+  onAddActivity?: (dayNumber: number, activity?: Activity) => void;
   onEditActivity?: (dayNumber: number, activityId: string) => void;
   onDeleteActivity?: (dayNumber: number, activityId: string) => void;
-  onAcceptSuggestion?: (suggestion: SuggestionItem) => void;
-  onModifySuggestion?: (suggestion: SuggestionItem) => void;
-  onRejectSuggestion?: (suggestion: SuggestionItem) => void;
+  onUpdateActivity?: (dayNumber: number, activityId: string, updatedActivity: any) => void;
   onSaveItinerary?: () => void;
   onShareItinerary?: () => void;
   onExportItinerary?: () => void;
@@ -46,214 +81,490 @@ interface ItinerarySidebarProps {
   onRefreshItinerary?: () => void;
 }
 
-const ItinerarySidebar: React.FC<ItinerarySidebarProps> = ({
-  days = [
-    {
-      date: "2023-06-15",
-      dayNumber: 1,
-      activities: [
-        {
-          id: "1",
-          title: "Visit Eiffel Tower",
-          description:
-            "Enjoy the iconic landmark of Paris with breathtaking views of the city.",
-          location:
-            "Champ de Mars, 5 Avenue Anatole France, 75007 Paris, France",
-          time: "10:00 AM - 12:00 PM",
-          imageUrl:
-            "https://images.unsplash.com/photo-1543349689-9a4d426bee8e?w=600&q=80",
-        },
-        {
-          id: "2",
-          title: "Lunch at Le Jules Verne",
-          description: "Fine dining experience with panoramic views of Paris.",
-          location:
-            "Eiffel Tower, 2nd floor, Avenue Gustave Eiffel, 75007 Paris, France",
-          time: "12:30 PM - 2:30 PM",
-          imageUrl:
-            "https://images.unsplash.com/photo-1600891964599-f61ba0e24092?w=600&q=80",
-        },
-      ],
-    },
-    {
-      date: "2023-06-16",
-      dayNumber: 2,
-      activities: [
-        {
-          id: "3",
-          title: "Louvre Museum Tour",
-          description:
-            "Explore one of the world's largest art museums and see the Mona Lisa.",
-          location: "Rue de Rivoli, 75001 Paris, France",
-          time: "9:00 AM - 1:00 PM",
-          imageUrl:
-            "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=600&q=80",
-        },
-        {
-          id: "4",
-          title: "Seine River Cruise",
-          description:
-            "Relaxing boat tour along the Seine River to see Paris from a different perspective.",
-          location:
-            "Port de la Conférence, Pont de l'Alma, 75008 Paris, France",
-          time: "3:00 PM - 5:00 PM",
-          imageUrl:
-            "https://images.unsplash.com/photo-1541410965313-d53b3c16ef17?w=600&q=80",
-        },
-      ],
-    },
-  ],
-  suggestions = [
-    {
-      id: "1",
-      title: "Visit the Eiffel Tower",
-      description:
-        "Iconic iron lattice tower on the Champ de Mars in Paris, France.",
-      imageUrl:
-        "https://images.unsplash.com/photo-1543349689-9a4d426bee8e?w=400&q=80",
-      location: "Champ de Mars, 5 Avenue Anatole France, 75007 Paris, France",
-      duration: "2 hours",
-    },
-    {
-      id: "2",
-      title: "Louvre Museum Tour",
-      description:
-        "World's largest art museum and a historic monument in Paris, France.",
-      imageUrl:
-        "https://images.unsplash.com/photo-1565099824688-e8c8a1b09978?w=400&q=80",
-      location: "Rue de Rivoli, 75001 Paris, France",
-      duration: "3 hours",
-    },
-    {
-      id: "3",
-      title: "Seine River Cruise",
-      description:
-        "Scenic boat tour along the Seine River with views of Paris landmarks.",
-      imageUrl:
-        "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=400&q=80",
-      location: "Port de la Conférence, 75008 Paris, France",
-      duration: "1 hour",
-    },
-  ],
-  onAddActivity = (dayNumber) =>
-    console.log(`Add activity to day ${dayNumber}`),
-  onEditActivity = (dayNumber, activityId) =>
-    console.log(`Edit activity ${activityId} on day ${dayNumber}`),
-  onDeleteActivity = (dayNumber, activityId) =>
-    console.log(`Delete activity ${activityId} on day ${dayNumber}`),
-  onAcceptSuggestion = (suggestion) =>
-    console.log(`Accept suggestion: ${suggestion.title}`),
-  onModifySuggestion = (suggestion) =>
-    console.log(`Modify suggestion: ${suggestion.title}`),
-  onRejectSuggestion = (suggestion) =>
-    console.log(`Reject suggestion: ${suggestion.title}`),
-  onSaveItinerary = () => console.log("Save itinerary"),
-  onShareItinerary = () => console.log("Share itinerary"),
-  onExportItinerary = () => console.log("Export itinerary"),
-  onPrintItinerary = () => console.log("Print itinerary"),
-  onRefreshItinerary = () => console.log("Refresh itinerary"),
-}) => {
-  const [activeTab, setActiveTab] = useState("itinerary");
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [currentActivity, setCurrentActivity] = useState<any>(null);
+// Add a type definition for the ActivityEditModalActivity
+interface ActivityEditModalActivity {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  date: Date;
+  startTime: string;
+  endTime: string;
+  imageUrl: string;
+  type?: string;
+}
 
+// Wrap the component with React.memo for shallow prop comparison
+const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
+  onAddActivity,
+  onEditActivity,
+  onDeleteActivity,
+  onUpdateActivity,
+  onSaveItinerary,
+  onShareItinerary,
+  onExportItinerary,
+  onPrintItinerary,
+  onRefreshItinerary,
+}) => {
+  // Get itinerary data from context
+  const { itineraryDays, addActivity, updateActivity, deleteActivity, saveItinerary } = useItinerary();
+  
+  const [selectedDay, setSelectedDay] = useState<string>("all");
+  const [viewMode, setViewMode] = useState<"day" | "list">("day");
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [currentActivity, setCurrentActivity] = useState<Activity | null>(null);
+  const {
+    value: itineraryTitle,
+    setValue: setItineraryTitle,
+    isEditing: isEditingTitle,
+    startEditing: handleTitleEdit,
+    stopEditing: handleTitleSave,
+    handleKeyDown: handleTitleKeyPress,
+    inputRef: titleInputRef
+  } = useEditableContent<string>("My Itinerary");
+
+  // Set the first day as selected when days change
+  useEffect(() => {
+    if (itineraryDays.length > 0 && selectedDay === "all") {
+      setSelectedDay(itineraryDays[0].dayNumber.toString());
+    }
+  }, [itineraryDays, selectedDay]);
+
+  // Using useRef to store already processed IDs to prevent repeated fixes on every render
+  const processedActivityIds = useRef(new Set<string>());
+  
+  // Memoize the getActivitiesWithUniqueIds function to avoid unnecessary recomputation
+  const getActivitiesWithUniqueIds = useCallback((activities: Activity[]): Activity[] => {
+    // If no activities, return empty array
+    if (!activities || activities.length === 0) {
+      return [];
+    }
+    
+    // Fast path: check if all activity IDs are already processed
+    if (activities.every(a => processedActivityIds.current.has(a.id))) {
+      return activities;
+    }
+    
+    // Process in a single pass - more efficient than two separate functions
+    const idMap = new Map<string, boolean>();
+    const result: Activity[] = [];
+    
+    for (const activity of activities) {
+      // Skip processing if already handled in a previous render
+      if (processedActivityIds.current.has(activity.id)) {
+        result.push(activity);
+        idMap.set(activity.id, true);
+        continue;
+      }
+      
+      // If this ID is already seen in this batch, generate a new one
+      if (idMap.has(activity.id)) {
+        const newId = `${activity.id}-${Math.random().toString(36).substring(2, 7)}`;
+        const updatedActivity = { ...activity, id: newId };
+        result.push(updatedActivity);
+        idMap.set(newId, true);
+        processedActivityIds.current.add(newId);
+      } else {
+        // No duplicate, keep original and mark as processed
+        result.push(activity);
+        idMap.set(activity.id, true);
+        processedActivityIds.current.add(activity.id);
+      }
+    }
+    
+    return result;
+  }, []); // Empty dependency array since this doesn't depend on any props or state
+
+  // Format date for display - memoize to avoid recreating on every render
+  const formatDate = useCallback((dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+  }, []);
+
+  // Get the date range for display - memoize based on itineraryDays
+  const dateRange = useMemo(() => {
+    if (itineraryDays.length === 0) return "No dates selected";
+    
+    const sortedDays = [...itineraryDays].sort((a, b) => a.dayNumber - b.dayNumber);
+    const startDate = new Date(sortedDays[0].date);
+    const endDate = new Date(sortedDays[sortedDays.length - 1].date);
+    
+    return `${formatDate(startDate.toISOString())} - ${formatDate(endDate.toISOString())}`;
+  }, [itineraryDays, formatDate]);
+
+  // Get the title for the current day - memoize based on selectedDay and itineraryDays
+  const dayTitle = useMemo(() => {
+    if (selectedDay === "all") return "All Days";
+    
+    const dayNumber = parseInt(selectedDay);
+    const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
+    
+    if (!day) return `Day ${selectedDay}`;
+    
+    return `Day ${day.dayNumber}: ${formatDate(day.date)}`;
+  }, [selectedDay, itineraryDays, formatDate]);
+
+  // Handle adding a new activity
+  const handleAddActivity = (dayNumber: number) => {
+    const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
+    if (day) {
+      // Parse the date from the day
+      const date = new Date(day.date);
+      
+      // Default time in 12-hour format
+      const defaultDisplayTime = "12:00 PM";
+      
+      // Convert to 24-hour format for the edit modal
+      const editTime = convertTo24Hour(defaultDisplayTime);
+      
+      // Create an empty activity with default values
+      setCurrentActivity({
+        id: "", // Empty ID indicates this is a new activity
+        title: "",
+        description: "",
+        location: "",
+        time: defaultDisplayTime,
+        type: "Activity",
+        imageUrl: "",
+        // Store the day date for reference
+        dayDate: date,
+        // Store the time in both display format and edit format
+        displayStartTime: defaultDisplayTime,
+        displayEndTime: "",
+        parsedStartTime: editTime,
+        parsedEndTime: ""
+      });
+      
+      // Open the edit modal
+      setEditModalOpen(true);
+      
+      // Call the onAddActivity prop if provided (for external handlers)
+      if (onAddActivity) {
+        onAddActivity(dayNumber);
+      }
+    }
+  };
+
+  // Handle editing an activity
   const handleEditActivity = (dayNumber: number, activityId: string) => {
-    // Find the activity in the days array
-    const day = days.find((d) => d.dayNumber === dayNumber);
+    const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
     if (day) {
       const activity = day.activities.find((a) => a.id === activityId);
       if (activity) {
+        // Parse the date from the day
+        const date = new Date(day.date);
+        
+        // Parse the time properly, handling AM/PM format
+        let displayStartTime = activity.time;
+        let displayEndTime = '';
+        
+        if (activity.time.includes(' - ')) {
+          const timeParts = activity.time.split(' - ');
+          displayStartTime = timeParts[0];
+          displayEndTime = timeParts[1];
+        }
+        
+        // Convert AM/PM time to 24-hour format for the time input
+        const editStartTime = convertTo24Hour(displayStartTime);
+        const editEndTime = convertTo24Hour(displayEndTime);
+        
         setCurrentActivity({
-          id: activity.id,
-          title: activity.title,
-          description: activity.description,
-          location: activity.location,
-          date: new Date(), // This would be parsed from the day.date in a real app
-          startTime: activity.time.split(" - ")[0],
-          endTime: activity.time.split(" - ")[1] || "",
-          imageUrl: activity.imageUrl || "",
+          ...activity,
+          // Ensure the activity has a type, defaulting to "Activity" if not specified
+          type: activity.type || "Activity",
+          // Store the day date for reference
+          dayDate: date,
+          // Store the time in both display format and edit format
+          displayStartTime,
+          displayEndTime,
+          parsedStartTime: editStartTime,
+          parsedEndTime: editEndTime
         });
         setEditModalOpen(true);
+        
+        // Call the onEditActivity prop for logging purposes only
+        if (onEditActivity) {
+          onEditActivity(dayNumber, activityId);
+        }
       }
     }
-    onEditActivity(dayNumber, activityId);
   };
 
-  const handleSaveActivity = (updatedActivity: any) => {
-    console.log("Saving updated activity:", updatedActivity);
+  // Handle saving an activity
+  const handleSaveActivity = (updatedActivity: Activity & { startTime?: string; endTime?: string }) => {
+    if (currentActivity?.id) {
+      // Update existing activity
+      const dayNumber = parseInt(selectedDay);
+      
+      let formattedTime = '';
+      if ('startTime' in updatedActivity && typeof updatedActivity.startTime === 'string') {
+        const startTimeAMPM = convertToAMPM(updatedActivity.startTime);
+        formattedTime = startTimeAMPM;
+        
+        if (updatedActivity.endTime && typeof updatedActivity.endTime === 'string') {
+          const endTimeAMPM = convertToAMPM(updatedActivity.endTime);
+          formattedTime += ` - ${endTimeAMPM}`;
+        }
+      } else if ('time' in updatedActivity) {
+        formattedTime = updatedActivity.time;
+      }
+      
+      if (onUpdateActivity) {
+        onUpdateActivity(dayNumber, currentActivity.id, {
+          ...updatedActivity,
+          time: formattedTime
+        });
+      } else {
+        // Default implementation if no prop provided
+        updateActivity(dayNumber, currentActivity.id, {
+          ...updatedActivity,
+          time: formattedTime
+        });
+      }
+    } else {
+      // Add new activity
+      const dayNumber = parseInt(selectedDay);
+      
+      let formattedTime = '';
+      if ('startTime' in updatedActivity && typeof updatedActivity.startTime === 'string') {
+        const startTimeAMPM = convertToAMPM(updatedActivity.startTime);
+        formattedTime = startTimeAMPM;
+        
+        if (updatedActivity.endTime && typeof updatedActivity.endTime === 'string') {
+          const endTimeAMPM = convertToAMPM(updatedActivity.endTime);
+          formattedTime += ` - ${endTimeAMPM}`;
+        }
+      } else if ('time' in updatedActivity) {
+        formattedTime = updatedActivity.time;
+      }
+      
+      // Generate a unique ID for the new activity
+      const newActivityId = `activity-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+      
+      // Create the new activity object
+      const newActivity = {
+        ...updatedActivity,
+        id: newActivityId,
+        time: formattedTime
+      };
+      
+      // Add the activity to the itinerary
+      if (onAddActivity) {
+        // If external handler is provided, call it and let it handle the activity creation
+        onAddActivity(dayNumber, newActivity);
+      } else {
+        // Use the internal addActivity function
+        addActivity(dayNumber, newActivity);
+      }
+    }
+    
+    // Close the modal after saving
     setEditModalOpen(false);
-    // In a real app, you would update the activity in your state/store here
+    setCurrentActivity(null);
+  };
+
+  // Handle deleting an activity
+  const handleDeleteActivity = (dayNumber: number, activityId: string) => {
+    console.log('ItinerarySidebar: handleDeleteActivity called', { dayNumber, activityId });
+    
+    if (onDeleteActivity) {
+      // Use the prop handler if provided
+      onDeleteActivity(dayNumber, activityId);
+    } else {
+      // Use the context deleteActivity function directly
+      deleteActivity(dayNumber, activityId);
+    }
+    
+    // Force a component update to ensure UI reflects the deletion
+    setSelectedDay(selectedDay); // Re-set the same value to trigger a re-render
+  };
+
+  // Handle saving the itinerary
+  const handleSaveItinerary = () => {
+    if (onSaveItinerary) {
+      onSaveItinerary();
+    } else {
+      // Default implementation if no prop provided
+      saveItinerary("My Itinerary");
+    }
+  };
+
+  // Toggle between day and list view
+  const toggleViewMode = () => {
+    setViewMode(viewMode === "day" ? "list" : "day");
+  };
+
+  // Helper function to ensure activity has required id
+  const ensureActivityId = (activity: Activity): Activity & { id: string } => {
+    return {
+      ...activity,
+      id: activity.id || `activity-${Date.now()}-${Math.random()}`
+    };
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-gray-50">
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="w-full h-full flex flex-col"
-      >
-        <div className="border-b bg-white px-4">
-          <TabsList className="h-14">
-            <TabsTrigger value="itinerary" className="flex-1">
-              Itinerary
-            </TabsTrigger>
-            <TabsTrigger value="suggestions" className="flex-1">
-              Suggestions
-            </TabsTrigger>
-          </TabsList>
+    <div className="h-full flex flex-col bg-white">
+      {/* Clean, simple header with title */}
+      <div className="py-6 px-8 border-b">
+        <div className="flex items-center mb-1">
+          {isEditingTitle ? (
+            <input
+              ref={titleInputRef}
+              value={itineraryTitle}
+              onChange={(e) => setItineraryTitle(e.target.value)}
+              onBlur={handleTitleSave}
+              onKeyDown={handleTitleKeyPress}
+              className="text-3xl font-bold text-slate-900 w-full bg-transparent focus:outline-none border-b border-blue-500 pb-0.5"
+              autoComplete="off"
+            />
+          ) : (
+            <h2 
+              className="text-3xl font-bold text-slate-900 hover:text-slate-800 cursor-pointer"
+              onClick={handleTitleEdit}
+            >
+              {itineraryTitle}
+            </h2>
+          )}
         </div>
+        
+        {/* Simple date display with icon */}
+        <div className="flex items-center mt-4 mb-6 text-gray-500">
+          <CalendarDays className="h-5 w-5 mr-2 text-gray-400" />
+          <span className="text-lg">{dateRange}</span>
+          
+          <div className="ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleViewMode}
+              className="h-8 px-3 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
+            >
+              <ListIcon className="h-4 w-4 mr-1.5" />
+              View All
+            </Button>
+          </div>
+        </div>
+      </div>
 
-        <div className="flex-1 overflow-hidden">
-          <TabsContent
-            value="itinerary"
-            className="h-full flex flex-col m-0 data-[state=active]:flex-1"
+      {/* Day title and Add button */}
+      <div className="px-8 py-4 bg-white flex justify-between items-center border-b">
+        <h3 className="text-2xl font-medium text-slate-800">{dayTitle}</h3>
+        
+        {/* Day selector repositioned here, to the right */}
+        <div className="flex items-center">
+          <Select
+            value={selectedDay}
+            onValueChange={setSelectedDay}
           >
-            <div className="flex-1 overflow-hidden">
-              <ItineraryDayList
-                days={days}
-                onAddActivity={onAddActivity}
-                onEditActivity={handleEditActivity}
-                onDeleteActivity={onDeleteActivity}
-              />
-            </div>
-          </TabsContent>
+            <SelectTrigger className="w-48 h-10 border border-slate-300 rounded mr-3">
+              <SelectValue placeholder="Select a day" />
+            </SelectTrigger>
+            <SelectContent>
+              {itineraryDays.map((day) => (
+                <SelectItem key={day.dayNumber} value={day.dayNumber.toString()}>
+                  {`${formatDate(day.date)}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleAddActivity(parseInt(selectedDay))}
+            className="h-10 px-4 rounded border-slate-200"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Item
+          </Button>
+        </div>
+      </div>
 
-          <TabsContent
-            value="suggestions"
-            className="h-full flex flex-col m-0 data-[state=active]:flex-1"
-          >
-            <ScrollArea className="flex-1">
-              <div className="p-4">
-                <SuggestionsList
-                  suggestions={suggestions}
-                  onAccept={onAcceptSuggestion}
-                  onModify={onModifySuggestion}
-                  onReject={onRejectSuggestion}
-                />
+      {/* Activity list */}
+      <ScrollArea className="flex-1 p-4 bg-gray-50">
+        {viewMode === "day" ? (
+          // Day view
+          <>
+            {selectedDay !== "all" && (
+              <div className="space-y-4">
+                {itineraryDays
+                  .filter((day) => day.dayNumber === parseInt(selectedDay))
+                  .map((day) => (
+                    <div key={day.dayNumber} className="space-y-4">
+                      {day.activities.length === 0 ? (
+                        <div>
+                          <div className="text-center py-4 text-slate-500 mb-4">
+                            No activities planned for this day yet. Add activities using the chat.
+                          </div>
+                          <div className="bg-white rounded-lg shadow p-4 mb-4 border border-slate-200">
+                            <div className="text-sm font-medium text-slate-900 mb-2">Sample Activity</div>
+                            <div className="text-xs text-slate-500 mb-2">9:00 AM - 11:00 AM</div>
+                            <div className="text-sm mb-2">This is where your activity details will appear.</div>
+                            <div className="text-xs text-slate-500">Location: Your destination</div>
+                          </div>
+                        </div>
+                      ) : (
+                        getActivitiesWithUniqueIds(day.activities).map((activity) => (
+                          <ActivityCard
+                            key={activity.id || `activity-${activity.title}-${Math.random()}`}
+                            activity={{
+                              ...activity,
+                              id: activity.id || `activity-${Date.now()}-${Math.random()}`
+                            }}
+                            onEdit={(id) => handleEditActivity(parseInt(selectedDay), id)}
+                            onDelete={(id) => handleDeleteActivity(parseInt(selectedDay), id)}
+                          />
+                        ))
+                      )}
+                    </div>
+                  ))}
               </div>
-            </ScrollArea>
-          </TabsContent>
-        </div>
+            )}
+          </>
+        ) : (
+          // List view
+          <ItineraryDayList
+            days={itineraryDays.map(day => ({
+              activities: day.activities,
+              date: day.date,
+              dayNumber: day.dayNumber
+            }))}
+            onEditActivity={handleEditActivity}
+            onDeleteActivity={handleDeleteActivity}
+            onEditDay={handleAddActivity}
+          />
+        )}
+      </ScrollArea>
 
-        <ItineraryActions
-          onSave={onSaveItinerary}
-          onShare={onShareItinerary}
-          onExport={onExportItinerary}
-          onPrint={onPrintItinerary}
-          onRefresh={onRefreshItinerary}
-        />
-      </Tabs>
-
+      {/* Activity edit modal */}
       {editModalOpen && currentActivity && (
         <ActivityEditModal
           open={editModalOpen}
-          onOpenChange={setEditModalOpen}
-          activity={currentActivity}
+          onOpenChange={(open) => {
+            setEditModalOpen(open);
+            if (!open) setCurrentActivity(null);
+          }}
+          activity={{
+            id: currentActivity.id,
+            title: currentActivity.title,
+            description: currentActivity.description,
+            location: currentActivity.location,
+            date: currentActivity.dayDate || new Date(),
+            startTime: currentActivity.parsedStartTime || "12:00 PM",
+            endTime: currentActivity.parsedEndTime || "",
+            imageUrl: currentActivity.imageUrl || '',
+            type: currentActivity.type
+          } as ActivityEditModalActivity}
           onSave={handleSaveActivity}
+          isNewActivity={!currentActivity.id}
         />
       )}
     </div>
   );
-};
+});
 
 export default ItinerarySidebar;

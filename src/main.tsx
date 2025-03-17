@@ -1,18 +1,29 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App.tsx";
-import "./index.css";
-import { BrowserRouter } from "react-router-dom";
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App.tsx';
+import { ItineraryProvider } from './contexts/ItineraryContext';
+import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
+import ErrorBoundary from './components/ErrorBoundary';
 
-import { TempoDevtools } from "tempo-devtools";
-TempoDevtools.init();
+// Import Supabase setup if needed
+// import { supabase } from './services/supabase';
 
-const basename = import.meta.env.BASE_URL;
+// Setup any global error handlers
+window.addEventListener('error', (event) => {
+  console.error('Global error:', event.error);
+  // You could send this to an error tracking service
+});
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+// Render the app
+ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter basename={basename}>
-      <App />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <UserPreferencesProvider>
+        <ItineraryProvider>
+          <App />
+        </ItineraryProvider>
+      </UserPreferencesProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );

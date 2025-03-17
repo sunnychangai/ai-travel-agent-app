@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { format } from "date-fns";
 import { CalendarIcon, Clock } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
 interface ActivityEditModalProps {
   open?: boolean;
@@ -29,8 +30,10 @@ interface ActivityEditModalProps {
     startTime: string;
     endTime: string;
     imageUrl: string;
+    type?: string;
   };
   onSave?: (activity: any) => void;
+  isNewActivity?: boolean;
 }
 
 const ActivityEditModal = ({
@@ -47,8 +50,10 @@ const ActivityEditModal = ({
     endTime: "12:00",
     imageUrl:
       "https://images.unsplash.com/photo-1543349689-9a4d426bee8e?w=800&q=80",
+    type: "Activity",
   },
   onSave = () => {},
+  isNewActivity = false,
 }: ActivityEditModalProps) => {
   const [title, setTitle] = React.useState(activity.title);
   const [description, setDescription] = React.useState(activity.description);
@@ -56,10 +61,17 @@ const ActivityEditModal = ({
   const [date, setDate] = React.useState<Date | undefined>(activity.date);
   const [startTime, setStartTime] = React.useState(activity.startTime);
   const [endTime, setEndTime] = React.useState(activity.endTime);
-  const [imageUrl, setImageUrl] = React.useState(activity.imageUrl);
+  const [type, setType] = React.useState(activity.type || "Activity");
 
   const handleSave = () => {
-    onSave({
+    // Validate required fields
+    if (!title.trim()) {
+      alert("Title is required");
+      return;
+    }
+
+    // Create the updated activity object
+    const updatedActivity = {
       id: activity.id,
       title,
       description,
@@ -67,15 +79,21 @@ const ActivityEditModal = ({
       date,
       startTime,
       endTime,
-      imageUrl,
-    });
+      imageUrl: activity.imageUrl,
+      type,
+    };
+
+    // Call the onSave callback with the updated activity
+    onSave(updatedActivity);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] bg-white">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">Edit Activity</DialogTitle>
+          <DialogTitle className="text-xl font-bold">
+            {isNewActivity ? "Add Activity" : "Edit Activity"}
+          </DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
@@ -88,6 +106,22 @@ const ActivityEditModal = ({
               onChange={(e) => setTitle(e.target.value)}
               className="col-span-3"
             />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="type" className="text-right">
+              Type
+            </Label>
+            <Select value={type} onValueChange={setType}>
+              <SelectTrigger className="col-span-3">
+                <SelectValue placeholder="Select activity type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Transportation">Transportation</SelectItem>
+                <SelectItem value="Accommodation">Accommodation</SelectItem>
+                <SelectItem value="Activity">Activity</SelectItem>
+                <SelectItem value="Food">Food</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="description" className="text-right">
@@ -167,30 +201,6 @@ const ActivityEditModal = ({
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
               />
-            </div>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="imageUrl" className="text-right">
-              Image URL
-            </Label>
-            <Input
-              id="imageUrl"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              className="col-span-3"
-            />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <div className="col-span-4">
-              {imageUrl && (
-                <div className="mt-2 rounded-md overflow-hidden h-40 w-full">
-                  <img
-                    src={imageUrl}
-                    alt="Activity preview"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
             </div>
           </div>
         </div>

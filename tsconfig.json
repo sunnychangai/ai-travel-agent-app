@@ -15,6 +15,15 @@
     "jsx": "react-jsx",
 
     "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
+    "strictBindCallApply": false,
+    "strictPropertyInitialization": false,
+    "noImplicitThis": false,
+    "useUnknownInCatchVariables": false,
+    "alwaysStrict": false,
+    
     "paths": {
       "@/*": ["./src/*"]
     }

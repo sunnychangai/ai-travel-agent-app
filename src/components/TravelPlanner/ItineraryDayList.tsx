@@ -1,255 +1,285 @@
-import React, { useState } from "react";
-import { ChevronDown, ChevronUp, Plus } from "lucide-react";
+import React, { useEffect, useState, useMemo } from "react";
+import { Edit2, Trash2, Star } from "lucide-react";
+import { Card } from "../ui/card";
 import { Button } from "../ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../ui/collapsible";
-import { ScrollArea } from "../ui/scroll-area";
-import { Separator } from "../ui/separator";
+import ActivityCard from "./ActivityCard";
+import { timeToMinutes, sortActivitiesByTime } from "../../utils/timeUtils";
+import useVirtualizedList from "../../hooks/useVirtualizedList";
+import { Activity, ItineraryDay } from '../../types';
 
-interface Activity {
-  id: string;
-  title: string;
-  description: string;
-  location: string;
-  time: string;
-  imageUrl?: string;
-}
+// Function to determine activity type based on title and description
+const determineActivityType = (title: string, description: string): string => {
+  const combinedText = `${title} ${description}`.toLowerCase();
+  
+  // Transportation keywords
+  if (
+    combinedText.includes('airport') ||
+    combinedText.includes('train') ||
+    combinedText.includes('bus') ||
+    combinedText.includes('taxi') ||
+    combinedText.includes('transfer') ||
+    combinedText.includes('flight') ||
+    combinedText.includes('arrival') ||
+    combinedText.includes('departure') ||
+    combinedText.includes('transit') ||
+    combinedText.includes('transportation')
+  ) {
+    return 'Transportation';
+  }
+  
+  // Accommodation keywords
+  if (
+    combinedText.includes('hotel') ||
+    combinedText.includes('check-in') ||
+    combinedText.includes('check in') ||
+    combinedText.includes('check-out') ||
+    combinedText.includes('check out') ||
+    combinedText.includes('accommodation') ||
+    combinedText.includes('stay') ||
+    combinedText.includes('lodge') ||
+    combinedText.includes('hostel') ||
+    combinedText.includes('apartment') ||
+    combinedText.includes('airbnb')
+  ) {
+    return 'Accommodation';
+  }
+  
+  // Food keywords
+  if (
+    combinedText.includes('lunch') ||
+    combinedText.includes('dinner') ||
+    combinedText.includes('breakfast') ||
+    combinedText.includes('brunch') ||
+    combinedText.includes('meal') ||
+    combinedText.includes('restaurant') ||
+    combinedText.includes('café') ||
+    combinedText.includes('cafe') ||
+    combinedText.includes('food') ||
+    combinedText.includes('eat') ||
+    combinedText.includes('dining')
+  ) {
+    return 'Food';
+  }
+  
+  // Default to Activity
+  return 'Activity';
+};
 
-interface ItineraryDay {
-  date: string;
-  dayNumber: number;
-  activities: Activity[];
-}
-
-interface ActivityCardProps {
-  title: string;
-  description: string;
-  location: string;
-  time: string;
-  imageUrl?: string;
-  onEdit?: () => void;
-  onDelete?: () => void;
-}
-
-// Inline ActivityCard component since there seems to be an issue with importing it
-const ActivityCard: React.FC<ActivityCardProps> = ({
-  title = "Activity Title",
-  description = "Activity description goes here",
-  location = "Activity location",
-  time = "9:00 AM - 11:00 AM",
-  imageUrl = "https://images.unsplash.com/photo-1527631746610-bca00a040d60?w=600&q=80",
-  onEdit = () => console.log("Edit activity"),
-  onDelete = () => console.log("Delete activity"),
-}) => {
-  return (
-    <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
-      <div className="flex flex-col md:flex-row">
-        {imageUrl && (
-          <div className="w-full md:w-1/3 h-32 md:h-auto">
-            <img
-              src={imageUrl}
-              alt={title}
-              className="w-full h-full object-cover"
-            />
-          </div>
-        )}
-        <div className="p-4 flex-1">
-          <div className="flex justify-between items-start">
-            <div>
-              <h3 className="font-semibold text-lg">{title}</h3>
-              <p className="text-sm text-gray-600 mt-1">{time}</p>
-              <p className="text-sm text-gray-500 mt-1">{location}</p>
-            </div>
-            <div className="flex space-x-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onEdit}
-                className="text-gray-500 hover:text-blue-600"
-              >
-                Edit
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onDelete}
-                className="text-gray-500 hover:text-red-600"
-              >
-                Delete
-              </Button>
-            </div>
-          </div>
-          <p className="text-sm text-gray-700 mt-2">{description}</p>
-        </div>
-      </div>
-    </div>
-  );
+// Get background color based on activity type
+const getTypeBackground = (type: string) => {
+  switch (type?.toLowerCase()) {
+    case 'transportation':
+      return 'bg-blue-100 text-blue-700 font-semibold border border-blue-300';
+    case 'accommodation':
+      return 'bg-purple-100 text-purple-700 font-semibold border border-purple-300';
+    case 'food':
+      return 'bg-orange-100 text-orange-700 font-semibold border border-orange-300';
+    case 'activity':
+      return 'bg-green-100 text-green-700 font-semibold border border-green-300';
+    default:
+      return 'bg-slate-100 text-slate-700 font-semibold border border-slate-300';
+  }
 };
 
 interface ItineraryDayListProps {
-  days: ItineraryDay[];
-  onAddActivity?: (dayNumber: number) => void;
+  days: Array<{
+    date: string;
+    dayNumber: number;
+    activities: Activity[];
+  }>;
   onEditActivity?: (dayNumber: number, activityId: string) => void;
   onDeleteActivity?: (dayNumber: number, activityId: string) => void;
+  onEditDay?: (dayNumber: number) => void;
+  isReadOnly?: boolean;
 }
 
-const ItineraryDayList: React.FC<ItineraryDayListProps> = ({
-  days = [
-    {
-      date: "2023-06-15",
-      dayNumber: 1,
-      activities: [
-        {
-          id: "1",
-          title: "Visit Eiffel Tower",
-          description:
-            "Enjoy the iconic landmark of Paris with breathtaking views of the city.",
-          location:
-            "Champ de Mars, 5 Avenue Anatole France, 75007 Paris, France",
-          time: "10:00 AM - 12:00 PM",
-          imageUrl:
-            "https://images.unsplash.com/photo-1543349689-9a4d426bee8e?w=600&q=80",
-        },
-        {
-          id: "2",
-          title: "Lunch at Le Jules Verne",
-          description: "Fine dining experience with panoramic views of Paris.",
-          location:
-            "Eiffel Tower, 2nd floor, Avenue Gustave Eiffel, 75007 Paris, France",
-          time: "12:30 PM - 2:30 PM",
-          imageUrl:
-            "https://images.unsplash.com/photo-1600891964599-f61ba0e24092?w=600&q=80",
-        },
-      ],
-    },
-    {
-      date: "2023-06-16",
-      dayNumber: 2,
-      activities: [
-        {
-          id: "3",
-          title: "Louvre Museum Tour",
-          description:
-            "Explore one of the world's largest art museums and see the Mona Lisa.",
-          location: "Rue de Rivoli, 75001 Paris, France",
-          time: "9:00 AM - 1:00 PM",
-          imageUrl:
-            "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=600&q=80",
-        },
-        {
-          id: "4",
-          title: "Seine River Cruise",
-          description:
-            "Relaxing boat tour along the Seine River to see Paris from a different perspective.",
-          location:
-            "Port de la Conférence, Pont de l'Alma, 75008 Paris, France",
-          time: "3:00 PM - 5:00 PM",
-          imageUrl:
-            "https://images.unsplash.com/photo-1541410965313-d53b3c16ef17?w=600&q=80",
-        },
-      ],
-    },
-  ],
-  onAddActivity = (dayNumber) =>
-    console.log(`Add activity to day ${dayNumber}`),
-  onEditActivity = (dayNumber, activityId) =>
-    console.log(`Edit activity ${activityId} on day ${dayNumber}`),
-  onDeleteActivity = (dayNumber, activityId) =>
-    console.log(`Delete activity ${activityId} on day ${dayNumber}`),
-}) => {
-  const [openDays, setOpenDays] = useState<number[]>(
-    days.map((day) => day.dayNumber),
-  );
+const ACTIVITY_CARD_HEIGHT = 180; // Approximate height of activity card in pixels
+const DAY_HEADER_HEIGHT = 60; // Approximate height of day header in pixels
 
-  const toggleDay = (dayNumber: number) => {
-    setOpenDays((prev) =>
-      prev.includes(dayNumber)
-        ? prev.filter((d) => d !== dayNumber)
-        : [...prev, dayNumber],
-    );
+// Ensure activity has an ID when passing to ActivityCard
+const ensureActivityId = (activity: Activity): Activity & { id: string } => {
+  return {
+    ...activity,
+    id: activity.id || `activity-${Date.now()}-${Math.random()}`
   };
+};
 
-  const isDayOpen = (dayNumber: number) => openDays.includes(dayNumber);
+const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
+  days,
+  onEditActivity,
+  onDeleteActivity,
+  onEditDay,
+  isReadOnly = false,
+}) => {
+  // Prepare flattened list for virtualization when in "all" mode
+  const flattenedItems = useMemo(() => {
+    // Only perform flattening if we have multiple days in "all" mode
+    if (days.length <= 1) {
+      return null;
+    }
 
+    const items: Array<{
+      type: 'header' | 'activity';
+      dayNumber: number;
+      date?: string;
+      activity?: Activity;
+      dayIndex: number;
+    }> = [];
+
+    days.forEach((day, dayIndex) => {
+      // Add header item
+      items.push({
+        type: 'header',
+        dayNumber: day.dayNumber,
+        date: day.date,
+        dayIndex
+      });
+
+      // Add sorted activities
+      sortActivitiesByTime(day.activities).forEach(activity => {
+        items.push({
+          type: 'activity',
+          dayNumber: day.dayNumber,
+          activity,
+          dayIndex
+        });
+      });
+    });
+
+    return items;
+  }, [days]);
+
+  // Use virtualized list for "all" mode with many items
+  const useVirtualization = flattenedItems && flattenedItems.length > 20;
+
+  const {
+    virtualItems,
+    totalHeight,
+    scrollRef,
+    handleScroll
+  } = useVirtualization
+    ? useVirtualizedList(flattenedItems!, {
+        itemHeight: ACTIVITY_CARD_HEIGHT,
+        overscan: 5
+      })
+    : { virtualItems: null, totalHeight: 0, scrollRef: null, handleScroll: null };
+
+  // Render using virtualization for "all" view with many items
+  if (useVirtualization && virtualItems) {
+    return (
+      <div
+        ref={scrollRef}
+        className="overflow-auto h-full"
+        style={{ height: '100%' }}
+        onScroll={handleScroll as any}
+      >
+        <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
+          {virtualItems.map(virtualItem => {
+            const item = virtualItem.item;
+            
+            if (item.type === 'header') {
+              // Render day header
+              return (
+                <div
+                  key={`day-header-${item.dayNumber}`}
+                  className={`flex justify-between items-center mb-4 pr-5 pl-3 ${
+                    item.dayIndex > 0 ? "pt-6 mt-6 border-t border-gray-200" : "pt-2"
+                  }`}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    transform: `translateY(${virtualItem.offsetTop}px)`,
+                    width: '100%'
+                  }}
+                >
+                  <h2 className="text-lg font-medium text-slate-700">
+                    {new Date(item.date!).toLocaleDateString('en-US', { 
+                      weekday: 'long', 
+                      month: 'long', 
+                      day: 'numeric'
+                    })}
+                  </h2>
+                  <Button 
+                    variant="outline"
+                    className="h-8 px-3 border border-gray-200 shadow-sm bg-green-50 hover:bg-green-100 hover:border-gray-300 transition-colors text-sm font-medium text-green-700"
+                    onClick={() => onEditDay?.(item.dayNumber)}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Add Item
+                  </Button>
+                </div>
+              );
+            } else {
+              // Render activity card
+              const activity = item.activity!;
+              return (
+                <div
+                  key={activity.id || `activity-${activity.title}-${Math.random()}`}
+                  className="space-y-4 px-3 pr-5"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    transform: `translateY(${virtualItem.offsetTop}px)`,
+                    width: '100%'
+                  }}
+                >
+                  <ActivityCard
+                    activity={ensureActivityId(activity)}
+                    onEdit={(id) => onEditActivity?.(item.dayNumber, id)}
+                    onDelete={(id) => onDeleteActivity?.(item.dayNumber, id)}
+                  />
+                </div>
+              );
+            }
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Use the original non-virtualized rendering for day view or smaller lists
   return (
-    <ScrollArea className="h-full w-full bg-white">
-      <div className="p-4 space-y-4">
-        <h2 className="text-2xl font-bold text-gray-800">Your Itinerary</h2>
-
-        {days.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <p>No itinerary days added yet.</p>
-            <p>Start chatting with the AI to build your trip!</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {days.map((day) => (
-              <Collapsible
-                key={day.dayNumber}
-                open={isDayOpen(day.dayNumber)}
-                onOpenChange={() => toggleDay(day.dayNumber)}
-                className="border rounded-lg overflow-hidden bg-gray-50"
+    <div className={`space-y-8 ${days.length > 1 ? "pb-8 mt-1" : ""}`}>
+      {days.map((day, index) => (
+        <div key={day.dayNumber} className={`${index === 0 && days.length > 1 ? "pt-2" : ""}`}>
+          {/* Show day header in "all" view mode */}
+          {days.length > 1 && (
+            <div className="flex justify-between items-center mb-4 pr-5 pl-3">
+              <h2 className="text-lg font-medium text-slate-700">
+                {new Date(day.date).toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  month: 'long', 
+                  day: 'numeric'
+                })}
+              </h2>
+              <Button 
+                variant="outline"
+                className="h-8 px-3 border border-gray-200 shadow-sm bg-green-50 hover:bg-green-100 hover:border-gray-300 transition-colors text-sm font-medium text-green-700"
+                onClick={() => onEditDay?.(day.dayNumber)}
               >
-                <CollapsibleTrigger asChild>
-                  <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-100">
-                    <div>
-                      <h3 className="text-lg font-semibold">
-                        Day {day.dayNumber}
-                      </h3>
-                      <p className="text-sm text-gray-600">{day.date}</p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-500">
-                        {day.activities.length} activities
-                      </span>
-                      {isDayOpen(day.dayNumber) ? (
-                        <ChevronUp className="h-5 w-5 text-gray-500" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-gray-500" />
-                      )}
-                    </div>
-                  </div>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <Separator />
-                  <div className="p-4 space-y-4">
-                    {day.activities.map((activity) => (
-                      <ActivityCard
-                        key={activity.id}
-                        title={activity.title}
-                        description={activity.description}
-                        location={activity.location}
-                        time={activity.time}
-                        imageUrl={activity.imageUrl}
-                        onEdit={() =>
-                          onEditActivity(day.dayNumber, activity.id)
-                        }
-                        onDelete={() =>
-                          onDeleteActivity(day.dayNumber, activity.id)
-                        }
-                      />
-                    ))}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full mt-2 border-dashed border-gray-300 text-gray-500 hover:text-gray-700"
-                      onClick={() => onAddActivity(day.dayNumber)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Activity
-                    </Button>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                Add Item
+              </Button>
+            </div>
+          )}
+          
+          {/* Sort activities by time before rendering */}
+          <div className="space-y-4 px-3 pr-5">
+            {sortActivitiesByTime(day.activities).map((activity) => (
+              <ActivityCard
+                key={activity.id || `activity-${activity.title}-${activity.time}`}
+                activity={ensureActivityId(activity)}
+                onEdit={(id) => onEditActivity?.(day.dayNumber, id)}
+                onDelete={(id) => onDeleteActivity?.(day.dayNumber, id)}
+              />
             ))}
           </div>
-        )}
-      </div>
-    </ScrollArea>
+        </div>
+      ))}
+    </div>
   );
-};
+});
+
+ItineraryDayList.displayName = 'ItineraryDayList';
 
 export default ItineraryDayList;

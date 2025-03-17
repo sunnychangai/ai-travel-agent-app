@@ -9,120 +9,75 @@ import {
 import { Download, Share2, Printer, Save, RefreshCw } from "lucide-react";
 
 interface ItineraryActionsProps {
-  onSave?: () => void;
   onShare?: () => void;
   onExport?: () => void;
-  onPrint?: () => void;
   onRefresh?: () => void;
-  isSaving?: boolean;
   isExporting?: boolean;
-  isPrinting?: boolean;
   isSharing?: boolean;
   isRefreshing?: boolean;
 }
 
 const ItineraryActions = ({
-  onSave = () => {},
   onShare = () => {},
   onExport = () => {},
-  onPrint = () => {},
   onRefresh = () => {},
-  isSaving = false,
   isExporting = false,
-  isPrinting = false,
   isSharing = false,
   isRefreshing = false,
 }: ItineraryActionsProps) => {
   return (
-    <div className="w-full h-[100px] bg-white border-t border-gray-200 p-4 flex items-center justify-between">
-      <div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          className="mr-2"
-        >
-          <RefreshCw className="h-4 w-4 mr-2" />
-          {isRefreshing ? "Refreshing..." : "Refresh"}
-        </Button>
-      </div>
+    <div className="w-full h-[60px] bg-white border-t border-gray-200 p-4 flex items-center justify-center gap-4 z-10 relative">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRefresh}
+        disabled={isRefreshing}
+        className="h-9 w-9 p-0"
+      >
+        <RefreshCw className="h-4 w-4" />
+      </Button>
 
-      <div className="flex space-x-2">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={onSave}
-                disabled={isSaving}
-              >
-                <Save className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Save itinerary</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onShare}
+              disabled={isSharing}
+              className="h-9"
+            >
+              <Share2 className="h-4 w-4 mr-2" />
+              Share
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Share itinerary</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={onShare}
-                disabled={isSharing}
-              >
-                <Share2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Share itinerary</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onExport}
+              disabled={isExporting}
+              className="h-9"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Export itinerary</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={onExport}
-                disabled={isExporting}
-              >
-                <Download className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Export itinerary</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={onPrint}
-                disabled={isPrinting}
-              >
-                <Printer className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Print itinerary</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <Button variant="default">Finalize Itinerary</Button>
-      </div>
+      <Button variant="default" className="h-9">Finalize Itinerary</Button>
     </div>
   );
 };
