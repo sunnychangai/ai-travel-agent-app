@@ -704,7 +704,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
           // Day view
           <>
             {selectedDay !== "all" && (
-              <div className="space-y-4">
+              <div className="space-y-4 pl-3">
                 {itineraryDays
                   .filter((day) => day.dayNumber === parseInt(selectedDay))
                   .map((day) => (
