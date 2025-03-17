@@ -410,32 +410,30 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     <div className="h-full flex flex-col bg-white">
       {/* Itinerary header */}
       <div className="px-8 pt-5 pb-4 border-b bg-white">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">
-              {isEditingTitle ? (
-                <input
-                  ref={titleInputRef}
-                  type="text"
-                  value={itineraryTitle}
-                  onChange={(e) => setItineraryTitle(e.target.value)}
-                  onBlur={handleTitleSave}
-                  onKeyDown={handleTitleKeyPress}
-                  className="border-b border-slate-300 focus:border-blue-500 focus:outline-none py-1 px-0 bg-transparent"
-                  autoFocus
-                />
-              ) : (
-                <button
-                  onClick={handleTitleEdit}
-                  className="hover:text-blue-600 transition-colors focus:outline-none"
-                >
-                  {itineraryTitle}
-                </button>
-              )}
-            </h1>
-          </div>
-
-          <div className="flex items-center space-x-4">
+        <div className="flex flex-col">
+          <h1 className="text-2xl font-bold text-slate-800 mb-4">
+            {isEditingTitle ? (
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={itineraryTitle}
+                onChange={(e) => setItineraryTitle(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={handleTitleKeyPress}
+                className="border-b border-slate-300 focus:border-blue-500 focus:outline-none py-1 px-0 bg-transparent"
+                autoFocus
+              />
+            ) : (
+              <button
+                onClick={handleTitleEdit}
+                className="hover:text-blue-600 transition-colors focus:outline-none"
+              >
+                {itineraryTitle}
+              </button>
+            )}
+          </h1>
+          
+          <div className="flex items-center justify-between">
             <div className="flex items-center text-slate-600">
               <CalendarIcon className="h-5 w-5 mr-2 text-slate-500" />
               <span className="text-sm">{itineraryDays.length} days</span>
