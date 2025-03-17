@@ -228,82 +228,64 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     switch (step) {
       case 1:
         return (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold">Welcome to AI Travel Assistant</h2>
-              <p className="text-gray-500 mt-2">Let's get to know you better to personalize your experience.</p>
-            </div>
-            <div className="space-y-4">
-              <Label htmlFor="name">What's your name?</Label>
-              <Input
-                id="name"
-                placeholder="Enter your name"
-                value={preferences.name}
-                onChange={handleInputChange}
-                className="bg-white/80 backdrop-blur-sm"
-              />
-            </div>
+          <div className="space-y-5">
+            <Input
+              id="name"
+              placeholder="Enter your name"
+              value={preferences.name}
+              onChange={handleInputChange}
+              className="bg-white/90 backdrop-blur-sm text-lg h-12 rounded-xl"
+              aria-label="Your name"
+            />
           </div>
         );
       
       case 2:
         return (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <div>
-              <h2 className="text-2xl font-bold">Travel Style</h2>
-              <p className="text-gray-500 mt-2">Tell us how you like to travel.</p>
+              <Select 
+                value={preferences.travelStyle[0] || ''} 
+                onValueChange={(value) => setPreferences({...preferences, travelStyle: [value]})}
+              >
+                <SelectTrigger id="travelStyle" className="bg-white/90 backdrop-blur-sm h-12 rounded-xl">
+                  <SelectValue placeholder="Select your travel style" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="balanced">⚖️ Balanced Mix</SelectItem>
+                  <SelectItem value="luxury">✨ Luxury</SelectItem>
+                  <SelectItem value="budget">💰 Budget-friendly</SelectItem>
+                  <SelectItem value="adventure">🧗‍♂️ Adventure</SelectItem>
+                  <SelectItem value="relaxation">🧘‍♀️ Relaxation</SelectItem>
+                  <SelectItem value="cultural">🏛️ Cultural</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-4">
-              <div className="mb-4">
-                <Label htmlFor="travelStyle">What's your travel style?</Label>
-                <Select 
-                  value={preferences.travelStyle[0] || ''} 
-                  onValueChange={(value) => setPreferences({...preferences, travelStyle: [value]})}
-                >
-                  <SelectTrigger id="travelStyle" className="bg-white/80 backdrop-blur-sm">
-                    <SelectValue placeholder="Select your travel style" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="balanced">⚖️ Balanced Mix</SelectItem>
-                    <SelectItem value="luxury">✨ Luxury</SelectItem>
-                    <SelectItem value="budget">💰 Budget-friendly</SelectItem>
-                    <SelectItem value="adventure">🧗‍♂️ Adventure</SelectItem>
-                    <SelectItem value="relaxation">🧘‍♀️ Relaxation</SelectItem>
-                    <SelectItem value="cultural">🏛️ Cultural</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div>
-                <Label htmlFor="dreamDestinations">Favorite or dream destinations</Label>
-                <Input
-                  id="dreamDestinations"
-                  placeholder="E.g., Paris, Tokyo, New York (comma separated)"
-                  value={preferences.dreamDestinations}
-                  onChange={handleInputChange}
-                  className="bg-white/80 backdrop-blur-sm"
-                />
-              </div>
+            
+            <div>
+              <Input
+                id="dreamDestinations"
+                placeholder="Your dream destinations (e.g., Paris, Tokyo)"
+                value={preferences.dreamDestinations}
+                onChange={handleInputChange}
+                className="bg-white/90 backdrop-blur-sm h-12 rounded-xl"
+              />
             </div>
           </div>
         );
       
       case 3:
         return (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold">Activity Interests</h2>
-              <p className="text-gray-500 mt-2">What activities do you enjoy while traveling?</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-3">
               {ACTIVITY_OPTIONS.map((option) => (
                 <div 
                   key={option.id} 
                   className={`
                     flex items-center space-x-2 p-3 rounded-xl cursor-pointer transition-all
                     ${preferences.activities.includes(option.id) 
-                      ? 'bg-blue-50 border-2 border-blue-500' 
-                      : 'bg-white/80 backdrop-blur-sm border-2 border-gray-200 hover:border-gray-300'}
+                      ? 'bg-blue-50/90 border border-blue-500 shadow-sm' 
+                      : 'bg-white/90 backdrop-blur-sm border border-gray-200 hover:border-gray-300'}
                   `}
                   onClick={() => handleActivityChange(option.id)}
                 >
@@ -313,7 +295,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     onCheckedChange={() => handleActivityChange(option.id)}
                     className="sr-only"
                   />
-                  <Label htmlFor={`activity-${option.id}`} className="cursor-pointer flex-1">{option.label}</Label>
+                  <Label htmlFor={`activity-${option.id}`} className="cursor-pointer flex-1 text-sm font-medium">{option.label}</Label>
                 </div>
               ))}
             </div>
@@ -322,20 +304,16 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 4:
         return (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold">Travel Preferences</h2>
-              <p className="text-gray-500 mt-2">Select your preferences for a better travel experience.</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-3">
               {PREFERENCE_OPTIONS.map((option) => (
                 <div 
                   key={option.id} 
                   className={`
                     flex items-center space-x-2 p-3 rounded-xl cursor-pointer transition-all
                     ${preferences.preferences.includes(option.id) 
-                      ? 'bg-blue-50 border-2 border-blue-500' 
-                      : 'bg-white/80 backdrop-blur-sm border-2 border-gray-200 hover:border-gray-300'}
+                      ? 'bg-blue-50/90 border border-blue-500 shadow-sm' 
+                      : 'bg-white/90 backdrop-blur-sm border border-gray-200 hover:border-gray-300'}
                   `}
                   onClick={() => handlePreferenceChange(option.id)}
                 >
@@ -345,7 +323,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     onCheckedChange={() => handlePreferenceChange(option.id)}
                     className="sr-only"
                   />
-                  <Label htmlFor={`pref-${option.id}`} className="cursor-pointer flex-1">{option.label}</Label>
+                  <Label htmlFor={`pref-${option.id}`} className="cursor-pointer flex-1 text-sm font-medium">{option.label}</Label>
                 </div>
               ))}
             </div>
@@ -354,26 +332,22 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 5:
         return (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold">Travel Budget</h2>
-              <p className="text-gray-500 mt-2">What's your typical budget for travel experiences?</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
               {BUDGET_OPTIONS.map((option) => (
                 <button
                   key={option.id}
                   type="button"
                   onClick={() => handleBudgetChange(option.id)}
                   className={`
-                    h-24 flex flex-col items-center justify-center rounded-xl border-2 transition-all
+                    h-20 flex flex-col items-center justify-center rounded-xl border transition-all
                     ${preferences.budget === option.id 
-                      ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                      : 'border-gray-200 hover:border-gray-300 bg-white/80 backdrop-blur-sm text-gray-700 hover:bg-gray-50'}
+                      ? 'border-blue-500 bg-blue-50/90 text-blue-700 shadow-sm' 
+                      : 'border-gray-200 hover:border-gray-300 bg-white/90 backdrop-blur-sm text-gray-700 hover:bg-gray-50'}
                   `}
                 >
-                  <span className="text-2xl font-bold mb-1">{option.label}</span>
-                  <span className="text-xs text-gray-500">{option.description}</span>
+                  <span className="text-xl font-bold">{option.label}</span>
+                  <span className="text-xs text-gray-500 mt-1">{option.description}</span>
                 </button>
               ))}
             </div>
@@ -387,18 +361,18 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-5xl h-[600px] flex overflow-hidden rounded-3xl shadow-2xl">
+      <div className="w-full max-w-4xl h-[580px] flex overflow-hidden rounded-2xl shadow-2xl">
         {/* Left side - Background image with text overlay */}
         <div className="w-2/5 relative hidden md:block">
           <div 
             className="absolute inset-0 bg-cover bg-center" 
             style={{ backgroundImage: `url(${BACKGROUND_IMAGES[step-1]})` }}
           >
-            <div className="absolute inset-0 bg-black/30 p-8 flex flex-col justify-end">
-              <h2 className="text-3xl font-bold text-white mb-2">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-black/10 p-8 flex flex-col justify-end">
+              <h2 className="text-3xl font-semibold text-white mb-2">
                 {step === 1 ? 'Welcome' : STEP_TITLES[step-1]}
               </h2>
-              <p className="text-white/80 text-lg">
+              <p className="text-white/90 text-base font-light leading-relaxed">
                 {STEP_DESCRIPTIONS[step-1]}
               </p>
             </div>
@@ -406,28 +380,29 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         </div>
 
         {/* Right side - Form content */}
-        <div className="w-full md:w-3/5 bg-white p-8 relative">
+        <div className="w-full md:w-3/5 bg-white flex flex-col relative">
           <button 
             onClick={() => onComplete ? onComplete() : navigate('/app')} 
-            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10"
             aria-label="Skip onboarding"
           >
             <X size={20} />
           </button>
           
-          <div className="mb-8">
-            {/* Navigation tabs */}
-            <div className="flex justify-center space-x-2 pt-4 pb-2">
+          {/* Navigation tabs */}
+          <div className="py-6 px-8">
+            <div className="flex justify-center space-x-2 mb-2">
               {STEP_TITLES.map((title, i) => (
                 <button
                   key={i}
-                  className={`px-4 py-2 rounded-full text-sm whitespace-nowrap ${
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium tracking-wide transition-colors ${
                     step === i+1 
                       ? 'bg-gray-900 text-white' 
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                   onClick={() => i+1 < step && setStep(i+1)}
                   disabled={i+1 > step}
+                  aria-current={step === i+1 ? 'step' : undefined}
                 >
                   {title}
                 </button>
@@ -435,29 +410,38 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             </div>
           </div>
           
-          <div className="h-[350px] overflow-y-auto pr-2">
-            {renderStep()}
+          {/* Main content */}
+          <div className="flex-1 px-8 overflow-y-auto">
+            <div className="mb-6">
+              <h2 className="text-2xl font-semibold text-gray-900">{step === 1 ? 'What should we call you?' : STEP_TITLES[step-1]}</h2>
+              <p className="text-gray-500 text-sm mt-1">{STEP_DESCRIPTIONS[step-1]}</p>
+            </div>
+            
+            <div className="py-2">
+              {renderStep()}
+            </div>
           </div>
           
-          <div className="flex justify-between mt-8">
-            {step > 1 && (
+          {/* Footer with buttons */}
+          <div className="p-8 border-t border-gray-100">
+            <div className="flex justify-between">
+              {step > 1 ? (
+                <Button
+                  variant="outline"
+                  onClick={handleBack}
+                  className="rounded-full px-6 py-1.5 text-sm font-medium"
+                >
+                  Back
+                </Button>
+              ) : <div></div>}
               <Button
-                variant="outline"
-                onClick={handleBack}
-                disabled={step === 1}
-                className="rounded-full px-6"
+                onClick={handleNext}
+                disabled={loading}
+                className="rounded-full px-6 py-1.5 text-sm font-medium bg-black hover:bg-gray-800"
               >
-                Back
+                {step === 5 ? (loading ? 'Saving...' : 'Finish') : 'Continue'}
               </Button>
-            )}
-            {step === 1 && <div></div>} {/* Empty div to maintain spacing when back button is hidden */}
-            <Button
-              onClick={handleNext}
-              disabled={loading}
-              className="rounded-full px-6 bg-black hover:bg-gray-800"
-            >
-              {step === 5 ? (loading ? 'Saving...' : 'Finish') : 'Next'}
-            </Button>
+            </div>
           </div>
         </div>
       </div>
