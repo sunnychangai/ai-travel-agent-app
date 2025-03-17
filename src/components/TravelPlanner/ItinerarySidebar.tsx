@@ -210,6 +210,17 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
 
   // Handle adding a new activity
   const handleAddActivity = (dayNumber: number) => {
+    // Handle "all" view case - default to first day if available
+    if (isNaN(dayNumber) || dayNumber <= 0) {
+      if (itineraryDays.length > 0) {
+        dayNumber = itineraryDays[0].dayNumber;
+      } else {
+        // Can't add an activity without at least one day
+        console.error("Cannot add activity: No days in itinerary");
+        return;
+      }
+    }
+    
     const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
     if (day) {
       // Parse the date from the day
@@ -238,6 +249,9 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
         parsedStartTime: editTime,
         parsedEndTime: ""
       });
+      
+      // Set the selected day to ensure the activity appears in the right place
+      setSelectedDay(dayNumber.toString());
       
       // Open the edit modal
       setEditModalOpen(true);
@@ -487,7 +501,10 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => handleAddActivity(parseInt(selectedDay))}
+          onClick={() => {
+            const dayNum = selectedDay !== "all" ? parseInt(selectedDay) : 0;
+            handleAddActivity(dayNum);
+          }}
           className="h-10 px-4 rounded border-slate-200"
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -561,17 +578,22 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
           }}
           activity={{
             id: currentActivity.id,
-            title: currentActivity.title,
-            description: currentActivity.description,
-            location: currentActivity.location,
+            title: currentActivity.title || '',
+            description: currentActivity.description || '',
+            location: currentActivity.location || '',
             date: currentActivity.dayDate || new Date(),
-            startTime: currentActivity.parsedStartTime || "12:00 PM",
+            startTime: currentActivity.parsedStartTime || "12:00",
             endTime: currentActivity.parsedEndTime || "",
             imageUrl: currentActivity.imageUrl || '',
-            type: currentActivity.type
+            type: currentActivity.type || 'Activity'
           } as ActivityEditModalActivity}
           onSave={handleSaveActivity}
           isNewActivity={!currentActivity.id}
+          placeholders={{
+            title: "Enter activity title...",
+            description: "Describe your activity...",
+            location: "Enter location..."
+          }}
         />
       )}
     </div>
