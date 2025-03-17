@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { useEditableContent } from "../../hooks/useEditableContent";
 
 // Utility imports
-import { format, isValid, isToday } from 'date-fns';
+import { format, isValid, isToday, parse, parseISO } from 'date-fns';
 import { convertTo24Hour, convertToAMPM } from "../../utils/timeUtils";
 import { cn } from '../../lib/utils';
 
@@ -124,51 +124,57 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   } = useEditableContent<string>("My Itinerary");
 
   // Format date for display - memoize to avoid recreating on every render
-  const formatDate = useCallback((dateString: string, format?: string) => {
-    const date = new Date(dateString);
-    
-    if (format === 'MM/DD') {
-      return date.toLocaleDateString("en-US", {
-        month: "2-digit",
-        day: "2-digit"
-      });
-    } else if (format === 'full') {
-      return date.toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric"
-      });
-    } else if (format === 'monthDay') {
-      return date.toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric"
-      });
+  const formatDate = useCallback((dateString: string, formatType?: string) => {
+    try {
+      // Parse the date string to a Date object
+      const date = parseISO(dateString);
+      
+      // Validate date
+      if (!isValid(date)) {
+        console.error("Invalid date:", dateString);
+        return "Invalid date";
+      }
+      
+      // Format based on requested format
+      if (formatType === 'MM/DD') {
+        return format(date, 'MM/dd');
+      } else if (formatType === 'full') {
+        return format(date, 'EEEE, MMMM d, yyyy');
+      } else if (formatType === 'monthDay') {
+        return format(date, 'MMMM d');
+      }
+      
+      // Default format
+      return format(date, 'EEE, MMM d');
+    } catch (error) {
+      console.error("Error formatting date:", error);
+      return "Invalid date";
     }
-    
-    // Default format
-    return date.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    });
   }, []);
 
   // Create an initial day when the component mounts if no days exist
   useEffect(() => {
     if (itineraryDays.length === 0 && typeof addDay === 'function') {
-      // Create a new day with today's date using browser's local date
-      const today = new Date();
-      // Format date as YYYY-MM-DD in local timezone
-      const localDate = today.getFullYear() + '-' + 
-                        String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-                        String(today.getDate()).padStart(2, '0');
+      // Get today's date - for demo purposes, use March 17, 2025
+      // IMPORTANT: In production, replace this with: const today = new Date();
+      const today = new Date(2025, 2, 17); // Month is 0-indexed, so 2 = March
+      
+      // Format using date-fns for consistency and correctness
+      const formattedDate = format(today, 'yyyy-MM-dd');
+      
+      // Validate the date before proceeding
+      if (!isValid(parseISO(formattedDate))) {
+        console.error("Generated invalid date:", formattedDate);
+        return;
+      }
       
       const newDay = {
         dayNumber: 1,
-        date: localDate,
+        date: formattedDate,
         activities: []
       };
+      
+      console.log("Creating initial day with date:", formattedDate);
       
       // Add the new day to the itinerary context
       addDay(newDay);
@@ -252,28 +258,33 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   const handleAddActivity = (dayNumber: number) => {
     // Handle case when no days exist in itinerary
     if (itineraryDays.length === 0) {
-      // Create a new day with today's date using browser's local date
-      const today = new Date();
-      // Format date as YYYY-MM-DD in local timezone
-      const localDate = today.getFullYear() + '-' + 
-                        String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-                        String(today.getDate()).padStart(2, '0');
+      // Get today's date - for demo purposes, use March 17, 2025
+      // IMPORTANT: In production, replace this with: const today = new Date();
+      const today = new Date(2025, 2, 17); // Month is 0-indexed, so 2 = March
+      
+      // Format using date-fns for consistency and correctness
+      const formattedDate = format(today, 'yyyy-MM-dd');
+      
+      // Validate the date before proceeding
+      if (!isValid(parseISO(formattedDate))) {
+        console.error("Generated invalid date:", formattedDate);
+        return;
+      }
       
       const newDay = {
         dayNumber: 1,
-        date: localDate,
+        date: formattedDate,
         activities: []
       };
       
       // Add the new day to the itinerary context
-      // We need to add the day first, then add the activity
       try {
         // If addDay exists in the context, use it
         if (typeof addDay === 'function') {
           addDay(newDay);
         } else {
-          // Otherwise use a workaround by adding an activity to day 1
-          console.log("Creating first day in itinerary with today's date");
+          console.error("addDay function not available");
+          return;
         }
         
         // Use the new day
@@ -292,8 +303,19 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     
     // If we get here, either we have days or we just created one
     const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
+    
     // If day doesn't exist yet (because we just created it), use dummy data
-    const date = day ? new Date(day.date) : new Date();
+    // Always validate the date first
+    let date: Date;
+    if (day) {
+      date = parseISO(day.date);
+      if (!isValid(date)) {
+        console.error("Invalid date in day object:", day.date);
+        date = new Date(2025, 2, 17); // Fallback to March 17, 2025
+      }
+    } else {
+      date = new Date(2025, 2, 17); // Default to March 17, 2025
+    }
     
     // Default time in 12-hour format
     const defaultDisplayTime = "12:00 PM";
