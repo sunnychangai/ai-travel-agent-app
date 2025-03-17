@@ -375,6 +375,24 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               <p className="text-white/90 text-base font-light leading-relaxed">
                 {STEP_DESCRIPTIONS[step-1]}
               </p>
+              
+              {/* Circle navigation indicators */}
+              <div className="flex justify-center gap-3 mt-6">
+                {STEP_TITLES.map((title, i) => (
+                  <button
+                    key={i}
+                    className={`rounded-full transition-all border border-white/80 
+                      ${step === i+1 
+                        ? 'bg-white w-3 h-3' 
+                        : 'bg-transparent w-2.5 h-2.5 hover:bg-white/50'}
+                    `}
+                    onClick={() => i+1 < step && setStep(i+1)}
+                    disabled={i+1 > step}
+                    aria-current={step === i+1 ? 'step' : undefined}
+                    aria-label={`Go to ${title} step`}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -389,28 +407,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             <X size={20} />
           </button>
           
-          {/* Navigation tabs */}
-          <div className="pt-16 pb-4 px-8">
-            <div className="flex justify-center mb-2 gap-4">
-              {STEP_TITLES.map((title, i) => (
-                <button
-                  key={i}
-                  className={`h-1 w-12 rounded-full transition-colors ${
-                    step === i+1 
-                      ? 'bg-gray-900' 
-                      : 'bg-gray-200 hover:bg-gray-300'
-                  }`}
-                  onClick={() => i+1 < step && setStep(i+1)}
-                  disabled={i+1 > step}
-                  aria-current={step === i+1 ? 'step' : undefined}
-                  aria-label={`Go to ${title} step`}
-                />
-              ))}
-            </div>
-          </div>
-          
           {/* Main content */}
-          <div className="flex-1 px-8 overflow-y-auto flex flex-col justify-center">
+          <div className="flex-1 px-8 overflow-y-auto flex flex-col justify-center pt-16">
             <div className="mb-2 text-center">
               <h2 className="text-2xl font-semibold text-gray-900">{step === 1 ? 'What should we call you?' : STEP_TITLES[step-1]}</h2>
               {step !== 1 && <p className="text-gray-500 text-sm mb-4">{STEP_DESCRIPTIONS[step-1]}</p>}
