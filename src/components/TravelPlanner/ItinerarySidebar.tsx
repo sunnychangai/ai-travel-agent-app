@@ -123,6 +123,54 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     inputRef: titleInputRef
   } = useEditableContent<string>("My Itinerary");
 
+  // Format date for display - memoize to avoid recreating on every render
+  const formatDate = useCallback((dateString: string, format?: string) => {
+    const date = new Date(dateString);
+    
+    if (format === 'MM/DD') {
+      return date.toLocaleDateString("en-US", {
+        month: "2-digit",
+        day: "2-digit"
+      });
+    } else if (format === 'full') {
+      return date.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric"
+      });
+    } else if (format === 'monthDay') {
+      return date.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric"
+      });
+    }
+    
+    // Default format
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+  }, []);
+
+  // Create an initial day when the component mounts if no days exist
+  useEffect(() => {
+    if (itineraryDays.length === 0 && typeof addDay === 'function') {
+      // Create a new day with today's date
+      const today = new Date();
+      const newDay = {
+        dayNumber: 1,
+        date: today.toISOString().split('T')[0],
+        activities: []
+      };
+      
+      // Add the new day to the itinerary context
+      addDay(newDay);
+      setSelectedDay("1");
+    }
+  }, [itineraryDays.length, addDay]);
+  
   // Set the first day as selected when days change
   useEffect(() => {
     if (itineraryDays.length > 0 && selectedDay === "all") {
@@ -174,16 +222,6 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     
     return result;
   }, []); // Empty dependency array since this doesn't depend on any props or state
-
-  // Format date for display - memoize to avoid recreating on every render
-  const formatDate = useCallback((dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    });
-  }, []);
 
   // Get the date range for display - memoize based on itineraryDays
   const dateRange = useMemo(() => {
@@ -473,7 +511,13 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
           <div className="flex items-center justify-between">
             <div className="flex items-center text-slate-600">
               <CalendarIcon className="h-5 w-5 mr-2 text-slate-500" />
-              <span className="text-sm">{itineraryDays.length} days</span>
+              <span className="text-sm">
+                {itineraryDays.length > 0 
+                  ? itineraryDays.length === 1 
+                    ? formatDate(itineraryDays[0].date, 'MM/DD')
+                    : `${itineraryDays.length} days` 
+                  : "0 days"}
+              </span>
             </div>
 
             <Button
@@ -506,7 +550,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               <SelectContent>
                 {itineraryDays.map((day) => (
                   <SelectItem key={day.dayNumber} value={day.dayNumber.toString()}>
-                    Day {day.dayNumber}
+                    {formatDate(day.date, 'full')}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -518,7 +562,13 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       {/* Day title and Add button - Removed border-b */}
       <div className="px-8 py-4 bg-white flex justify-between items-center">
         <h3 className="text-2xl font-medium text-slate-800">
-          {selectedDay !== "all" ? `Day ${selectedDay}` : "All Days"}
+          {selectedDay !== "all" ? (
+            `Day ${selectedDay}`
+          ) : (
+            itineraryDays.length === 1 ? 
+              formatDate(itineraryDays[0].date, 'monthDay') : 
+              "All Days"
+          )}
         </h3>
         
         <Button
