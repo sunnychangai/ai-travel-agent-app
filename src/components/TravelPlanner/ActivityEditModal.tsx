@@ -1,214 +1,266 @@
-import React from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogClose,
-} from "../ui/dialog";
+import React, { useState, useEffect } from "react";
+import { format, set } from "date-fns";
+import { CalendarIcon, Clock, MapPin } from "lucide-react";
+
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Textarea } from "../ui/textarea";
 import { Label } from "../ui/label";
+import { Textarea } from "../ui/textarea";
 import { Calendar } from "../ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
-import { format } from "date-fns";
-import { CalendarIcon, Clock } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
-interface ActivityEditModalProps {
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  activity?: {
-    id: string;
-    title: string;
-    description: string;
-    location: string;
-    date: Date;
-    startTime: string;
-    endTime: string;
-    imageUrl: string;
-    type?: string;
-  };
-  onSave?: (activity: any) => void;
-  isNewActivity?: boolean;
+// Define Activity interface for better type checking
+interface Activity {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  imageUrl?: string;
+  time?: string;
+  date?: Date;
+  startTime?: string;
+  endTime?: string;
+  type?: string;
+  dayDate?: Date; // Add this to pass the selected day date back
 }
 
-const ActivityEditModal = ({
-  open = true,
+interface ActivityEditModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  activity: Activity;
+  onSave: (activity: Activity) => void;
+  isNewActivity?: boolean;
+  placeholders?: {
+    title?: string;
+    description?: string;
+    location?: string;
+  };
+}
+
+const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
+  open,
   onOpenChange,
-  activity = {
-    id: "1",
-    title: "Visit the Eiffel Tower",
-    description:
-      "Explore the iconic Eiffel Tower and enjoy panoramic views of Paris.",
-    location: "Champ de Mars, 5 Avenue Anatole France, 75007 Paris, France",
-    date: new Date(),
-    startTime: "10:00",
-    endTime: "12:00",
-    imageUrl:
-      "https://images.unsplash.com/photo-1543349689-9a4d426bee8e?w=800&q=80",
-    type: "Activity",
-  },
-  onSave = () => {},
+  activity,
+  onSave,
   isNewActivity = false,
-}: ActivityEditModalProps) => {
-  const [title, setTitle] = React.useState(activity.title);
-  const [description, setDescription] = React.useState(activity.description);
-  const [location, setLocation] = React.useState(activity.location);
-  const [date, setDate] = React.useState<Date | undefined>(activity.date);
-  const [startTime, setStartTime] = React.useState(activity.startTime);
-  const [endTime, setEndTime] = React.useState(activity.endTime);
-  const [type, setType] = React.useState(activity.type || "Activity");
+  placeholders = {},
+}) => {
+  // State for form fields
+  const [title, setTitle] = useState(activity?.title || "");
+  const [description, setDescription] = useState(activity?.description || "");
+  const [location, setLocation] = useState(activity?.location || "");
+  const [date, setDate] = useState<Date | undefined>(activity?.date);
+  const [startTime, setStartTime] = useState(activity?.startTime || "");
+  const [endTime, setEndTime] = useState(activity?.endTime || "");
+  const [imageUrl, setImageUrl] = useState(activity?.imageUrl || "");
+  const [activityType, setActivityType] = useState(activity?.type || "Activity");
 
-  const handleSave = () => {
-    // Validate required fields
-    if (!title.trim()) {
-      alert("Title is required");
-      return;
+  // Update state when activity prop changes
+  useEffect(() => {
+    if (activity) {
+      setTitle(activity.title || "");
+      setDescription(activity.description || "");
+      setLocation(activity.location || "");
+      setDate(activity.date);
+      setStartTime(activity.startTime || "");
+      setEndTime(activity.endTime || "");
+      setImageUrl(activity.imageUrl || "");
+      setActivityType(activity.type || "Activity");
     }
+  }, [activity]);
 
-    // Create the updated activity object
-    const updatedActivity = {
-      id: activity.id,
-      title,
-      description,
-      location,
-      date,
-      startTime,
-      endTime,
-      imageUrl: activity.imageUrl,
-      type,
-    };
+  // Form validation
+  const isFormValid = () => {
+    return (
+      title.trim() !== "" && 
+      (startTime !== "" || (activity?.time && activity.time !== ""))
+    );
+  };
 
-    // Call the onSave callback with the updated activity
-    onSave(updatedActivity);
+  // Handle save
+  const handleSave = () => {
+    if (isFormValid()) {
+      onSave({
+        ...activity,
+        title,
+        description,
+        location,
+        startTime,
+        endTime,
+        imageUrl,
+        type: activityType,
+        dayDate: date // Pass the selected date back to parent component
+      });
+    }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] bg-white">
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">
-            {isNewActivity ? "Add Activity" : "Edit Activity"}
-          </DialogTitle>
+          <DialogTitle>{isNewActivity ? "Add New Item" : "Edit Item"}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="title" className="text-right">
+        <div className="grid gap-4 py-2">
+          {/* Activity type selector */}
+          <div className="grid grid-cols-4 gap-2">
+            <Label htmlFor="activity-type" className="col-span-4 mb-1">
+              Type
+            </Label>
+            <Select value={activityType} onValueChange={setActivityType}>
+              <SelectTrigger id="activity-type">
+                <SelectValue placeholder="Select type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Activity">Activity</SelectItem>
+                <SelectItem value="Meal">Meal</SelectItem>
+                <SelectItem value="Hotel">Hotel</SelectItem>
+                <SelectItem value="Flight">Flight</SelectItem>
+                <SelectItem value="Transportation">Transportation</SelectItem>
+                <SelectItem value="Note">Note</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {/* Title input */}
+          <div className="grid grid-cols-4 gap-2">
+            <Label htmlFor="title" className="col-span-4 mb-1">
               Title
             </Label>
             <Input
               id="title"
+              className="col-span-4"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="col-span-3"
+              placeholder={placeholders.title || ""}
             />
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="type" className="text-right">
-              Type
-            </Label>
-            <Select value={type} onValueChange={setType}>
-              <SelectTrigger className="col-span-3">
-                <SelectValue placeholder="Select activity type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Transportation">Transportation</SelectItem>
-                <SelectItem value="Accommodation">Accommodation</SelectItem>
-                <SelectItem value="Activity">Activity</SelectItem>
-                <SelectItem value="Food">Food</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="description" className="text-right">
+          
+          {/* Description textarea */}
+          <div className="grid grid-cols-4 gap-2">
+            <Label htmlFor="description" className="col-span-4 mb-1">
               Description
             </Label>
             <Textarea
               id="description"
+              className="col-span-4"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="col-span-3"
-              rows={3}
+              placeholder={placeholders.description || ""}
             />
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="location" className="text-right">
-              Location
+          
+          {/* Location input */}
+          <div className="grid grid-cols-4 gap-2">
+            <Label htmlFor="location" className="col-span-4 mb-1">
+              <div className="flex items-center">
+                <MapPin className="w-4 h-4 mr-1" />
+                <span>Location</span>
+              </div>
             </Label>
             <Input
               id="location"
+              className="col-span-4"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              className="col-span-3"
+              placeholder={placeholders.location || ""}
             />
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="date" className="text-right">
-              Date
+          
+          {/* Date & time selectors */}
+          <div className="grid grid-cols-4 gap-2">
+            <Label className="col-span-4 mb-1">
+              <div className="flex items-center">
+                <CalendarIcon className="w-4 h-4 mr-1" />
+                <span>Date</span>
+              </div>
             </Label>
-            <div className="col-span-3">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !date && "text-muted-foreground",
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {date ? format(date, "PPP") : <span>Pick a date</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={setDate}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={"outline"}
+                  className={cn(
+                    "col-span-4 justify-start text-left font-normal h-10",
+                    !date && "text-slate-400"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {date ? format(date, "PPP") : <span>Pick a date</span>}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={date}
+                  onSelect={setDate}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="startTime" className="text-right">
-              Start Time
+          
+          {/* Time inputs */}
+          <div className="grid grid-cols-4 gap-2">
+            <Label className="col-span-4 mb-1">
+              <div className="flex items-center">
+                <Clock className="w-4 h-4 mr-1" />
+                <span>Time</span>
+              </div>
             </Label>
-            <div className="col-span-3 flex items-center">
-              <Clock className="mr-2 h-4 w-4 text-gray-500" />
+            <div className="col-span-2">
+              <Label htmlFor="start-time" className="text-xs text-slate-500 mb-1 block">
+                Start
+              </Label>
               <Input
-                id="startTime"
+                id="start-time"
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
               />
             </div>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="endTime" className="text-right">
-              End Time
-            </Label>
-            <div className="col-span-3 flex items-center">
-              <Clock className="mr-2 h-4 w-4 text-gray-500" />
+            <div className="col-span-2">
+              <Label htmlFor="end-time" className="text-xs text-slate-500 mb-1 block">
+                End (optional)
+              </Label>
               <Input
-                id="endTime"
+                id="end-time"
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
               />
             </div>
           </div>
+          
+          {/* Image URL input */}
+          <div className="grid grid-cols-4 gap-2">
+            <Label htmlFor="image-url" className="col-span-4 mb-1">
+              Image URL (optional)
+            </Label>
+            <Input
+              id="image-url"
+              className="col-span-4"
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="https://..."
+            />
+          </div>
         </div>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
-          <Button onClick={handleSave}>Save Changes</Button>
+        <DialogFooter className="mt-4">
+          <Button 
+            variant="secondary" 
+            onClick={() => onOpenChange(false)}
+            className="mr-2"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSave} 
+            disabled={!isFormValid()}
+          >
+            Save
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
