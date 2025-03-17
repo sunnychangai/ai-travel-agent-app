@@ -592,7 +592,18 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       <div className="px-8 py-4 bg-white flex justify-between items-center">
         <h3 className="text-2xl font-medium text-slate-800">
           {selectedDay !== "all" ? (
-            `Day ${selectedDay}`
+            <>
+              {`Day ${selectedDay}`}
+              {viewMode === "day" && itineraryDays.length > 0 && (
+                <>
+                  {": "}
+                  {formatDate(
+                    itineraryDays.find(d => d.dayNumber === parseInt(selectedDay))?.date || '', 
+                    'monthDay'
+                  )}
+                </>
+              )}
+            </>
           ) : (
             itineraryDays.length === 1 ? 
               formatDate(itineraryDays[0].date, 'monthDay') : 
