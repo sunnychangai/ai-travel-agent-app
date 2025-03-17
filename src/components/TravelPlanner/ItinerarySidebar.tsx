@@ -393,7 +393,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     }
   };
 
-  // Toggle between day and list view
+  // Toggle between day view and list view
   const toggleViewMode = () => {
     setViewMode(viewMode === "day" ? "list" : "day");
   };
@@ -408,35 +408,39 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Clean, simple header with title */}
-      <div className="py-6 px-8 border-b">
-        <div className="flex items-center mb-1">
-          {isEditingTitle ? (
-            <input
-              ref={titleInputRef}
-              value={itineraryTitle}
-              onChange={(e) => setItineraryTitle(e.target.value)}
-              onBlur={handleTitleSave}
-              onKeyDown={handleTitleKeyPress}
-              className="text-3xl font-bold text-slate-900 w-full bg-transparent focus:outline-none border-b border-blue-500 pb-0.5"
-              autoComplete="off"
-            />
-          ) : (
-            <h2 
-              className="text-3xl font-bold text-slate-900 hover:text-slate-800 cursor-pointer"
-              onClick={handleTitleEdit}
-            >
-              {itineraryTitle}
-            </h2>
-          )}
-        </div>
-        
-        {/* Simple date display with icon */}
-        <div className="flex items-center mt-4 mb-6 text-gray-500">
-          <CalendarDays className="h-5 w-5 mr-2 text-gray-400" />
-          <span className="text-lg">{dateRange}</span>
-          
-          <div className="ml-auto">
+      {/* Itinerary header */}
+      <div className="px-8 pt-5 pb-4 border-b bg-white">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">
+              {isEditingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  type="text"
+                  value={itineraryTitle}
+                  onChange={(e) => setItineraryTitle(e.target.value)}
+                  onBlur={handleTitleSave}
+                  onKeyDown={handleTitleKeyPress}
+                  className="border-b border-slate-300 focus:border-blue-500 focus:outline-none py-1 px-0 bg-transparent"
+                  autoFocus
+                />
+              ) : (
+                <button
+                  onClick={handleTitleEdit}
+                  className="hover:text-blue-600 transition-colors focus:outline-none"
+                >
+                  {itineraryTitle}
+                </button>
+              )}
+            </h1>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center text-slate-600">
+              <CalendarIcon className="h-5 w-5 mr-2 text-slate-500" />
+              <span className="text-sm">{itineraryDays.length} days</span>
+            </div>
+
             <Button
               variant="outline"
               size="sm"
@@ -444,44 +448,51 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               className="h-8 px-3 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
             >
               <ListIcon className="h-4 w-4 mr-1.5" />
-              View All
+              {viewMode === "day" ? "List View" : "Day View"}
             </Button>
           </div>
         </div>
       </div>
 
-      {/* Day title and Add button */}
+      {/* Day selector area */}
       <div className="px-8 py-4 bg-white flex justify-between items-center border-b">
-        <h3 className="text-2xl font-medium text-slate-800">{dayTitle}</h3>
+        <h3 className="text-lg font-medium text-slate-700">Select Day:</h3>
         
-        {/* Day selector repositioned here, to the right */}
+        {/* Day selector */}
         <div className="flex items-center">
           <Select
             value={selectedDay}
             onValueChange={setSelectedDay}
           >
-            <SelectTrigger className="w-48 h-10 border border-slate-300 rounded mr-3">
+            <SelectTrigger className="w-[260px] h-10 border border-slate-300 rounded">
               <SelectValue placeholder="Select a day" />
             </SelectTrigger>
             <SelectContent>
               {itineraryDays.map((day) => (
                 <SelectItem key={day.dayNumber} value={day.dayNumber.toString()}>
-                  {`${formatDate(day.date)}`}
+                  Day {day.dayNumber}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleAddActivity(parseInt(selectedDay))}
-            className="h-10 px-4 rounded border-slate-200"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Item
-          </Button>
         </div>
+      </div>
+
+      {/* Day title and Add button */}
+      <div className="px-8 py-4 bg-white flex justify-between items-center border-b">
+        <h3 className="text-2xl font-medium text-slate-800">
+          {selectedDay !== "all" ? `Day ${selectedDay}` : "All Days"}
+        </h3>
+        
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleAddActivity(parseInt(selectedDay))}
+          className="h-10 px-4 rounded border-slate-200"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Add Item
+        </Button>
       </div>
 
       {/* Activity list */}
