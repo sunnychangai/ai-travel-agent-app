@@ -160,6 +160,18 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         throw new Error("User not authenticated");
       }
 
+      // Check the current table structure
+      const { data: tableInfo, error: tableError } = await supabase
+        .from('user_preferences')
+        .select('*')
+        .limit(1);
+      
+      if (tableError) {
+        console.error("Error checking table structure:", tableError);
+      } else {
+        console.log("Table structure sample:", tableInfo);
+      }
+
       console.log("Saving preferences:", {
         user_id: user.id,
         name: preferences.name,
@@ -170,25 +182,64 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         dream_destinations: preferences.dreamDestinations,
       });
       
-      // Ensure at least one item is selected for arrays
+      // First try with the standard column names
       const preferencesToSave = {
         user_id: user.id,
         name: preferences.name,
         travel_style: preferences.travelStyle.length ? preferences.travelStyle : ['balanced'],
+        // Try with both potential column names for backward compatibility
         activities: preferences.activities.length ? preferences.activities : ['sightseeing'],
+        activity_preferences: preferences.activities.length ? preferences.activities : ['sightseeing'],
         preferences: preferences.preferences.length ? preferences.preferences : ['popular'],
         budget: preferences.budget || '$',
         dream_destinations: preferences.dreamDestinations || null,
         created_at: new Date().toISOString()
       };
       
-      const { error } = await supabase
+      // Try to upsert and see if we get an error
+      let result = await supabase
         .from('user_preferences')
         .upsert(preferencesToSave);
 
-      if (error) {
-        console.error("Supabase error:", error);
-        throw error;
+      if (result.error) {
+        console.error("Supabase error:", result.error);
+        
+        // If the error mentions activities column, try with a different approach
+        if (result.error.message && result.error.message.includes("activities")) {
+          console.log("Trying alternate approach with JSONB...");
+          
+          // Save preferences as a JSON object in a single field
+          const simplifiedPreferences = {
+            user_id: user.id,
+            name: preferences.name,
+            travel_style: preferences.travelStyle.length ? preferences.travelStyle : ['balanced'],
+            // Omit the activities field that's causing problems
+            preferences: preferences.preferences.length ? preferences.preferences : ['popular'],
+            budget: preferences.budget || '$',
+            dream_destinations: preferences.dreamDestinations || null,
+            // Add preferences as JSON in a preferences_json field
+            preferences_json: JSON.stringify({
+              travel_style: preferences.travelStyle.length ? preferences.travelStyle : ['balanced'],
+              activities: preferences.activities.length ? preferences.activities : ['sightseeing'],
+              preferences: preferences.preferences.length ? preferences.preferences : ['popular'],
+              budget: preferences.budget || '$',
+              dream_destinations: preferences.dreamDestinations || null,
+            }),
+            created_at: new Date().toISOString()
+          };
+          
+          // Try the upsert again with the simplified structure
+          result = await supabase
+            .from('user_preferences')
+            .upsert(simplifiedPreferences);
+            
+          if (result.error) {
+            console.error("Second attempt failed:", result.error);
+            throw result.error;
+          }
+        } else {
+          throw result.error;
+        }
       }
 
       toast({
