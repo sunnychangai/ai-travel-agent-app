@@ -6,6 +6,24 @@ import ActivityCard from "./ActivityCard";
 import { timeToMinutes, sortActivitiesByTime } from "../../utils/timeUtils";
 import useVirtualizedList from "../../hooks/useVirtualizedList";
 import { Activity, ItineraryDay } from '../../types';
+import { format, isValid, parseISO } from 'date-fns';
+
+// Function to format date with validation
+const formatDate = (dateString: string): string => {
+  try {
+    const date = parseISO(dateString);
+    if (!isValid(date)) {
+      console.error("Invalid date:", dateString);
+      return "Invalid date";
+    }
+    const weekday = format(date, 'EEEE');
+    const monthDay = format(date, 'MMMM d');
+    return `${weekday}, ${monthDay}`;
+  } catch (error) {
+    console.error("Error formatting date:", error);
+    return "Invalid date";
+  }
+};
 
 // Function to determine activity type based on title and description
 const determineActivityType = (title: string, description: string): string => {
@@ -193,12 +211,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
                   }}
                 >
                   <h2 className="text-lg font-medium text-slate-700">
-                    {new Date(item.date!).toLocaleDateString('en-US', { 
-                      weekday: 'long',
-                    })}, {new Date(item.date!).toLocaleDateString('en-US', { 
-                      month: 'long', 
-                      day: 'numeric'
-                    })}
+                    {formatDate(item.date!)}
                   </h2>
                   <Button 
                     variant="outline"
@@ -246,12 +259,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
           {/* Show day header in "all" view mode */}
           <div className="flex justify-between items-center mb-4 pr-5 pl-3">
             <h2 className="text-lg font-medium text-slate-700">
-              {new Date(day.date).toLocaleDateString('en-US', { 
-                weekday: 'long', 
-              })}, {new Date(day.date).toLocaleDateString('en-US', { 
-                month: 'long', 
-                day: 'numeric'
-              })}
+              {formatDate(day.date)}
             </h2>
             <Button 
               variant="outline"
