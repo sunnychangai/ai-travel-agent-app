@@ -361,7 +361,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl h-[580px] flex overflow-hidden rounded-2xl shadow-2xl">
+      <div className="w-full max-w-4xl h-[520px] flex overflow-hidden rounded-2xl shadow-2xl">
         {/* Left side - Background image with text overlay */}
         <div className="w-2/5 relative hidden md:block">
           <div 
@@ -390,7 +390,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           </button>
           
           {/* Navigation tabs */}
-          <div className="py-6 px-8">
+          <div className="pt-8 pb-4 px-8">
             <div className="flex justify-center space-x-2 mb-2">
               {STEP_TITLES.map((title, i) => (
                 <button
@@ -412,18 +412,18 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           
           {/* Main content */}
           <div className="flex-1 px-8 overflow-y-auto">
-            <div className="mb-6">
+            <div className="mb-5">
               <h2 className="text-2xl font-semibold text-gray-900">{step === 1 ? 'What should we call you?' : STEP_TITLES[step-1]}</h2>
               <p className="text-gray-500 text-sm mt-1">{STEP_DESCRIPTIONS[step-1]}</p>
             </div>
             
-            <div className="py-2">
+            <div className="py-1">
               {renderStep()}
             </div>
           </div>
           
           {/* Footer with buttons */}
-          <div className="p-8 border-t border-gray-100">
+          <div className="p-6 border-t border-gray-100">
             <div className="flex justify-between">
               {step > 1 ? (
                 <Button
