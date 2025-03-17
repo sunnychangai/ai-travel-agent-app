@@ -440,14 +440,17 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           </div>
           
           <div className="flex justify-between mt-8">
-            <Button
-              variant="outline"
-              onClick={handleBack}
-              disabled={step === 1}
-              className="rounded-full px-6"
-            >
-              Back
-            </Button>
+            {step > 1 && (
+              <Button
+                variant="outline"
+                onClick={handleBack}
+                disabled={step === 1}
+                className="rounded-full px-6"
+              >
+                Back
+              </Button>
+            )}
+            {step === 1 && <div></div>} {/* Empty div to maintain spacing when back button is hidden */}
             <Button
               onClick={handleNext}
               disabled={loading}
