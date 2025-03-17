@@ -646,7 +646,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       </div>
 
       {/* Activity list */}
-      <ScrollArea className="flex-1 p-4 bg-gray-150">
+      <ScrollArea className="flex-1 p-4 pr-8 bg-gray-150">
         {viewMode === "day" ? (
           // Day view
           <>
