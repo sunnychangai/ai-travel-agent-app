@@ -369,7 +369,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             style={{ backgroundImage: `url(${BACKGROUND_IMAGES[step-1]})` }}
           >
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-black/10 p-8 flex flex-col justify-end">
-              <h2 className="text-3xl font-semibold text-white mb-1">
+              <h2 className="text-3xl font-semibold text-white">
                 {step === 1 ? 'Welcome' : STEP_TITLES[step-1]}
               </h2>
               <p className="text-white/90 text-base font-light leading-relaxed">
