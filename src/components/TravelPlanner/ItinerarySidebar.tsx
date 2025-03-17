@@ -149,7 +149,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       if (formatType === 'MM/DD') {
         return format(date, 'MM/dd');
       } else if (formatType === 'full') {
-        return format(date, 'EEEE, MMMM d, yyyy');
+        return format(date, 'EEEE, MMMM d');
       } else if (formatType === 'monthDay') {
         // Get components to add the ordinal suffix
         const day = date.getDate();
@@ -586,7 +586,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               value={selectedDay}
               onValueChange={setSelectedDay}
             >
-              <SelectTrigger className="w-[260px] h-10 border border-slate-200 rounded shadow-sm">
+              <SelectTrigger className="w-[200px] h-10 border border-slate-200 rounded shadow-sm">
                 <SelectValue placeholder="Select a day" />
               </SelectTrigger>
               <SelectContent>
