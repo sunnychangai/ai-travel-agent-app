@@ -663,40 +663,37 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
         </div>
       )}
 
-      {/* Day title and Add button - Removed border-b */}
-      <div className="px-8 py-4 bg-gray-150 flex justify-between items-center">
-        <h3 className="text-xl font-medium text-slate-700">
-          {selectedDay !== "all" ? (
-            viewMode === "day" ? (
+      {/* Day title and Add button - Only shown in day view */}
+      {viewMode === "day" && (
+        <div className="px-8 py-4 bg-gray-150 flex justify-between items-center">
+          <h3 className="text-xl font-medium text-slate-700">
+            {selectedDay !== "all" ? (
               // In day view, just show the date
               formatDate(
                 itineraryDays.find(d => d.dayNumber === parseInt(selectedDay))?.date || '', 
                 'monthDay'
               )
             ) : (
-              // In list view, show "Day X"
-              `Day ${selectedDay}`
-            )
-          ) : (
-            itineraryDays.length === 1 ? 
-              formatDate(itineraryDays[0].date, 'monthDay') : 
-              "All Days"
-          )}
-        </h3>
-        
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            const dayNum = selectedDay !== "all" ? parseInt(selectedDay) : 0;
-            handleAddActivity(dayNum);
-          }}
-          className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
-        >
-          <Plus className="h-4 w-4 mr-1.5" />
-          Add Item
-        </Button>
-      </div>
+              itineraryDays.length === 1 ? 
+                formatDate(itineraryDays[0].date, 'monthDay') : 
+                "All Days"
+            )}
+          </h3>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const dayNum = selectedDay !== "all" ? parseInt(selectedDay) : 0;
+              handleAddActivity(dayNum);
+            }}
+            className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            Add Item
+          </Button>
+        </div>
+      )}
 
       {/* Activity list */}
       <ScrollArea className="flex-1 p-4 pr-8 bg-gray-150">
