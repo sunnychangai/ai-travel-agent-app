@@ -160,22 +160,19 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         throw new Error("User not authenticated");
       }
       
-      // Create a payload that matches the database schema
+      // Create a payload with only the columns that exist in the database
       const payload: {
         user_id: string;
         name: string;
         travel_style: string[];
         budget: string;
-        dream_destinations: string;
         created_at: string;
         preferences?: string[];
       } = {
         user_id: user.id,
         name: preferences.name,
         travel_style: preferences.travelStyle,
-        // Handle the missing columns with fallback to empty arrays/strings
         budget: preferences.budget || '',
-        dream_destinations: preferences.dreamDestinations || '',
         created_at: new Date().toISOString()
       };
       
