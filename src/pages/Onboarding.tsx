@@ -390,7 +390,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           </button>
           
           {/* Navigation tabs */}
-          <div className="pt-8 pb-4 px-8">
+          <div className="pt-12 pb-4 px-8">
             <div className="flex justify-center space-x-2 mb-2">
               {STEP_TITLES.map((title, i) => (
                 <button
