@@ -310,7 +310,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 <div 
                   key={option.id} 
                   className={`
-                    flex items-center space-x-2 p-3 rounded-xl cursor-pointer transition-all
+                    flex items-center justify-center p-2 rounded-xl cursor-pointer transition-all
                     ${preferences.preferences.includes(option.id) 
                       ? 'bg-blue-50/90 border border-blue-500 shadow-sm' 
                       : 'bg-white/90 backdrop-blur-sm border border-gray-200 hover:border-gray-300'}
@@ -323,7 +323,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     onCheckedChange={() => handlePreferenceChange(option.id)}
                     className="sr-only"
                   />
-                  <Label htmlFor={`pref-${option.id}`} className="cursor-pointer flex-1 text-sm font-medium">{option.label}</Label>
+                  <Label htmlFor={`pref-${option.id}`} className="cursor-pointer text-sm font-medium text-center">{option.label}</Label>
                 </div>
               ))}
             </div>
