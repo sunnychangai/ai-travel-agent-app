@@ -178,8 +178,38 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
             const item = virtualItem.item;
             
             if (item.type === 'header') {
-              // Skip rendering day headers
-              return null;
+              // Render day header
+              return (
+                <div
+                  key={`day-header-${item.dayNumber}`}
+                  className={`flex justify-between items-center mb-4 pr-5 pl-3 ${
+                    item.dayIndex > 0 ? "pt-6 mt-6 border-t border-gray-200" : "pt-2"
+                  }`}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    transform: `translateY(${virtualItem.offsetTop}px)`,
+                    width: '100%'
+                  }}
+                >
+                  <h2 className="text-lg font-medium text-slate-700">
+                    Day {item.dayNumber} - {new Date(item.date!).toLocaleDateString('en-US', { 
+                      weekday: 'long',
+                    })}, {new Date(item.date!).toLocaleDateString('en-US', { 
+                      month: 'long', 
+                      day: 'numeric'
+                    })}
+                  </h2>
+                  <Button 
+                    variant="outline"
+                    className="h-8 px-3 border border-gray-200 shadow-sm bg-green-50 hover:bg-green-100 hover:border-gray-300 transition-colors text-sm font-medium text-green-700"
+                    onClick={() => onEditDay?.(item.dayNumber)}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Add Item
+                  </Button>
+                </div>
+              );
             } else {
               // Render activity card
               const activity = item.activity!;
@@ -213,7 +243,25 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
     <div className={`space-y-8 ${days.length > 1 ? "pb-8 mt-1" : ""}`}>
       {days.map((day, index) => (
         <div key={day.dayNumber} className={`${index === 0 && days.length > 1 ? "pt-2" : ""}`}>
-          {/* Remove day header section */}
+          {/* Show day header in "all" view mode */}
+          <div className="flex justify-between items-center mb-4 pr-5 pl-3">
+            <h2 className="text-lg font-medium text-slate-700">
+              Day {day.dayNumber} - {new Date(day.date).toLocaleDateString('en-US', { 
+                weekday: 'long', 
+              })}, {new Date(day.date).toLocaleDateString('en-US', { 
+                month: 'long', 
+                day: 'numeric'
+              })}
+            </h2>
+            <Button 
+              variant="outline"
+              className="h-8 px-3 border border-gray-200 shadow-sm bg-green-50 hover:bg-green-100 hover:border-gray-300 transition-colors text-sm font-medium text-green-700"
+              onClick={() => onEditDay?.(day.dayNumber)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Add Item
+            </Button>
+          </div>
           
           {/* Sort activities by time before rendering */}
           <div className="space-y-4 px-3 pr-0">
