@@ -157,27 +157,29 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   // Create an initial day when the component mounts if no days exist
   useEffect(() => {
     if (itineraryDays.length === 0 && typeof addDay === 'function') {
-      // Create a new day with today's date
+      // Create a new day with today's date using browser's local date
       const today = new Date();
+      // Format date as YYYY-MM-DD in local timezone
+      const localDate = today.getFullYear() + '-' + 
+                        String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+                        String(today.getDate()).padStart(2, '0');
+      
       const newDay = {
         dayNumber: 1,
-        date: today.toISOString().split('T')[0],
+        date: localDate,
         activities: []
       };
       
       // Add the new day to the itinerary context
       addDay(newDay);
+      // Always set the selected day to the first day
       setSelectedDay("1");
-    }
-  }, [itineraryDays.length, addDay]);
-  
-  // Set the first day as selected when days change
-  useEffect(() => {
-    if (itineraryDays.length > 0 && selectedDay === "all") {
+    } else if (itineraryDays.length > 0 && (selectedDay === "all" || !selectedDay)) {
+      // Always ensure a day is selected if days exist
       setSelectedDay(itineraryDays[0].dayNumber.toString());
     }
-  }, [itineraryDays, selectedDay]);
-
+  }, [itineraryDays, addDay, selectedDay]);
+  
   // Using useRef to store already processed IDs to prevent repeated fixes on every render
   const processedActivityIds = useRef(new Set<string>());
   
@@ -250,11 +252,16 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   const handleAddActivity = (dayNumber: number) => {
     // Handle case when no days exist in itinerary
     if (itineraryDays.length === 0) {
-      // Create a new day with today's date
+      // Create a new day with today's date using browser's local date
       const today = new Date();
+      // Format date as YYYY-MM-DD in local timezone
+      const localDate = today.getFullYear() + '-' + 
+                        String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+                        String(today.getDate()).padStart(2, '0');
+      
       const newDay = {
         dayNumber: 1,
-        date: today.toISOString().split('T')[0],
+        date: localDate,
         activities: []
       };
       
