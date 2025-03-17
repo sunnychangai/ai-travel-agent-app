@@ -85,28 +85,30 @@ export default function TravelPlannerLayout({
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      <ResizablePanelGroup direction="horizontal" className="h-full">
-        {/* Chat Panel */}
-        <ResizablePanel defaultSize={60} minSize={30} className="h-full">
-          <ChatAgent onDestinationDetected={handleDestinationDetected} />
-        </ResizablePanel>
+      <div className="h-full">
+        <ResizablePanelGroup direction="horizontal" className="h-full">
+          {/* Chat Panel */}
+          <ResizablePanel defaultSize={60} minSize={30} className="h-full">
+            <ChatAgent onDestinationDetected={handleDestinationDetected} />
+          </ResizablePanel>
 
-        <ResizableHandle withHandle />
+          <ResizableHandle withHandle />
 
-        {/* Itinerary Panel */}
-        <ResizablePanel defaultSize={40} minSize={30} className="h-full bg-gray-100">
-          <ItinerarySidebar 
-            key={`itinerary-sidebar-${itineraryDays ? 
-              JSON.stringify(itineraryDays.map(day => 
-                day.activities.map(a => a.id).join('-')
-              )) : 'empty'}`} 
-            onAddActivity={handleAddActivity}
-            onDeleteActivity={handleDeleteActivity}
-            onUpdateActivity={handleUpdateActivity}
-            onSaveItinerary={handleSaveItinerary}
-          />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+          {/* Itinerary Panel */}
+          <ResizablePanel defaultSize={40} minSize={30} className="h-full bg-gray-100">
+            <ItinerarySidebar 
+              key={`itinerary-sidebar-${itineraryDays ? 
+                JSON.stringify(itineraryDays.map(day => 
+                  day.activities.map(a => a.id).join('-')
+                )) : 'empty'}`} 
+              onAddActivity={handleAddActivity}
+              onDeleteActivity={handleDeleteActivity}
+              onUpdateActivity={handleUpdateActivity}
+              onSaveItinerary={handleSaveItinerary}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
     </div>
   );
 }
