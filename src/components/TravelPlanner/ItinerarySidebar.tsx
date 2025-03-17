@@ -135,13 +135,26 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
         return "Invalid date";
       }
       
+      // Add ordinal suffix to day (st, nd, rd, th)
+      const addOrdinalSuffix = (day: number): string => {
+        const j = day % 10;
+        const k = day % 100;
+        if (j === 1 && k !== 11) return day + "st";
+        if (j === 2 && k !== 12) return day + "nd";
+        if (j === 3 && k !== 13) return day + "rd";
+        return day + "th";
+      };
+      
       // Format based on requested format
       if (formatType === 'MM/DD') {
         return format(date, 'MM/dd');
       } else if (formatType === 'full') {
         return format(date, 'EEEE, MMMM d, yyyy');
       } else if (formatType === 'monthDay') {
-        return format(date, 'MMMM d');
+        // Get components to add the ordinal suffix
+        const day = date.getDate();
+        const month = format(date, 'MMMM');
+        return `${month} ${addOrdinalSuffix(day)}`;
       }
       
       // Default format
@@ -590,7 +603,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
 
       {/* Day title and Add button - Removed border-b */}
       <div className="px-8 py-4 bg-white flex justify-between items-center">
-        <h3 className="text-2xl font-medium text-slate-800">
+        <h3 className="text-xl font-medium text-slate-700">
           {selectedDay !== "all" ? (
             viewMode === "day" ? (
               // In day view, just show the date
@@ -616,9 +629,9 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
             const dayNum = selectedDay !== "all" ? parseInt(selectedDay) : 0;
             handleAddActivity(dayNum);
           }}
-          className="h-10 px-4 rounded border-slate-200 shadow-sm hover:shadow-md transition-all"
+          className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
         >
-          <Plus className="h-4 w-4 mr-2" />
+          <Plus className="h-4 w-4 mr-1.5" />
           Add Item
         </Button>
       </div>
