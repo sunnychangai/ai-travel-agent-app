@@ -528,7 +528,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       {/* Itinerary header */}
       <div className="px-8 pt-5 pb-4 border-b bg-white">
         <div className="flex flex-col">
-          <h1 className="text-2xl font-bold text-slate-800 mb-4">
+          <h1 className="text-2xl font-bold text-slate-800 mb-1.5">
             {isEditingTitle ? (
               <input
                 ref={titleInputRef}
