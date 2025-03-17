@@ -414,7 +414,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           <div className="flex-1 px-8 overflow-y-auto flex flex-col justify-center">
             <div className="mb-2 text-center">
               <h2 className="text-2xl font-semibold text-gray-900">{step === 1 ? 'What should we call you?' : STEP_TITLES[step-1]}</h2>
-              {step !== 1 && <p className="text-gray-500 text-sm mt-1">{STEP_DESCRIPTIONS[step-1]}</p>}
+              {step !== 1 && <p className="text-gray-500 text-sm">{STEP_DESCRIPTIONS[step-1]}</p>}
             </div>
             
             <div className="py-1">
