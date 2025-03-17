@@ -577,8 +577,8 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
 
       {/* Day selector area - Only show in day view */}
       {viewMode === "day" && (
-        <div className="px-8 py-4 bg-white flex justify-between items-center border-b">
-          <h3 className="text-lg font-medium text-slate-700">Select Day:</h3>
+        <div className="px-8 py-2 bg-white flex justify-between items-center border-b">
+          <h3 className="text-base font-medium text-slate-700">Select Day:</h3>
           
           {/* Day selector */}
           <div className="flex items-center">
@@ -586,7 +586,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               value={selectedDay}
               onValueChange={setSelectedDay}
             >
-              <SelectTrigger className="w-[200px] h-10 border border-slate-200 rounded shadow-sm">
+              <SelectTrigger className="w-[180px] h-8 border border-slate-200 rounded shadow-sm">
                 <SelectValue placeholder="Select a day" />
               </SelectTrigger>
               <SelectContent>
