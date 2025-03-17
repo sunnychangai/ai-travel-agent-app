@@ -228,7 +228,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     switch (step) {
       case 1:
         return (
-          <div className="space-y-6">
+          <div className="space-y-6 px-2">
             <div>
               <h2 className="text-2xl font-bold">Welcome to AI Travel Assistant</h2>
               <p className="text-gray-500 mt-2">Let's get to know you better to personalize your experience.</p>
@@ -248,7 +248,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 2:
         return (
-          <div className="space-y-6">
+          <div className="space-y-6 px-2">
             <div>
               <h2 className="text-2xl font-bold">Travel Style</h2>
               <p className="text-gray-500 mt-2">Tell us how you like to travel.</p>
@@ -290,7 +290,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 3:
         return (
-          <div className="space-y-6">
+          <div className="space-y-6 px-2">
             <div>
               <h2 className="text-2xl font-bold">Activity Interests</h2>
               <p className="text-gray-500 mt-2">What activities do you enjoy while traveling?</p>
@@ -322,7 +322,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 4:
         return (
-          <div className="space-y-6">
+          <div className="space-y-6 px-2">
             <div>
               <h2 className="text-2xl font-bold">Travel Preferences</h2>
               <p className="text-gray-500 mt-2">Select your preferences for a better travel experience.</p>
@@ -354,7 +354,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       
       case 5:
         return (
-          <div className="space-y-6">
+          <div className="space-y-6 px-2">
             <div>
               <h2 className="text-2xl font-bold">Travel Budget</h2>
               <p className="text-gray-500 mt-2">What's your typical budget for travel experiences?</p>
@@ -406,7 +406,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         </div>
 
         {/* Right side - Form content */}
-        <div className="w-full md:w-3/5 bg-white p-8 relative">
+        <div className="w-full md:w-3/5 bg-white p-8 px-12 relative">
           <button 
             onClick={() => onComplete ? onComplete() : navigate('/app')} 
             className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
@@ -440,7 +440,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             </div>
           </div>
           
-          <div className="h-[350px] overflow-y-auto pr-2">
+          <div className="h-[350px] overflow-y-auto pr-2 pl-4">
             {renderStep()}
           </div>
           
