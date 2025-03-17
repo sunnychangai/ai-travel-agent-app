@@ -413,6 +413,12 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
 
   // Handle saving an activity
   const handleSaveActivity = (updatedActivity: Activity & { startTime?: string; endTime?: string }) => {
+    // Check if the activity has a date property and convert it to string format
+    let activityDate = '';
+    if (updatedActivity.dayDate instanceof Date) {
+      activityDate = format(updatedActivity.dayDate, 'yyyy-MM-dd');
+    }
+
     if (currentActivity?.id) {
       // Update existing activity
       const dayNumber = parseInt(selectedDay);
@@ -444,8 +450,9 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       }
     } else {
       // Add new activity
-      const dayNumber = parseInt(selectedDay);
+      let dayNumber = parseInt(selectedDay);
       
+      // Format the time
       let formattedTime = '';
       if ('startTime' in updatedActivity && typeof updatedActivity.startTime === 'string') {
         const startTimeAMPM = convertToAMPM(updatedActivity.startTime);
@@ -468,6 +475,52 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
         id: newActivityId,
         time: formattedTime
       };
+      
+      // Check if we need to create a new day or update an existing day's date
+      if (activityDate && itineraryDays.length > 0) {
+        // Check if the activity date matches any existing day
+        const existingDay = itineraryDays.find(day => day.date === activityDate);
+        
+        if (existingDay) {
+          // If day exists, use its day number
+          dayNumber = existingDay.dayNumber;
+          setSelectedDay(dayNumber.toString());
+        } else {
+          // If this is the first activity and the user changed the date
+          if (itineraryDays.length === 1 && itineraryDays[0].activities.length === 0) {
+            // Update the existing day's date instead of creating a new one
+            const updatedDay = {
+              ...itineraryDays[0],
+              date: activityDate
+            };
+            
+            // Update the day in the context
+            if (typeof addDay === 'function') {
+              addDay(updatedDay);
+            }
+            
+            // Keep using day 1
+            dayNumber = 1;
+          } else {
+            // Create a new day
+            const newDayNumber = Math.max(...itineraryDays.map(d => d.dayNumber)) + 1;
+            const newDay = {
+              dayNumber: newDayNumber,
+              date: activityDate,
+              activities: []
+            };
+            
+            // Add the new day
+            if (typeof addDay === 'function') {
+              addDay(newDay);
+            }
+            
+            // Use the new day number
+            dayNumber = newDayNumber;
+            setSelectedDay(dayNumber.toString());
+          }
+        }
+      }
       
       // Add the activity to the itinerary
       if (onAddActivity) {
