@@ -542,7 +542,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               />
             ) : (
               <div 
-                className="flex items-center cursor-pointer" 
+                className="flex items-center cursor-text" 
                 onClick={handleTitleEdit}
               >
                 <span>{itineraryTitle}</span>
@@ -551,7 +551,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
                     e.stopPropagation();
                     handleTitleEdit();
                   }}
-                  className="ml-2 text-slate-400 hover:text-blue-600 transition-colors focus:outline-none"
+                  className="ml-4 text-slate-400 hover:text-blue-600 transition-colors focus:outline-none"
                 >
                   <Edit2 className="h-3 w-3" />
                 </button>
