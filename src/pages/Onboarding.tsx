@@ -391,21 +391,20 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           
           {/* Navigation tabs */}
           <div className="pt-16 pb-4 px-8">
-            <div className="flex justify-between mb-2">
+            <div className="flex justify-between mb-2 gap-2">
               {STEP_TITLES.map((title, i) => (
                 <button
                   key={i}
-                  className={`px-4 py-1.5 rounded-full text-xs font-medium tracking-wide transition-colors ${
+                  className={`h-1 flex-1 rounded-full transition-colors ${
                     step === i+1 
-                      ? 'bg-gray-900 text-white' 
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      ? 'bg-gray-900' 
+                      : 'bg-gray-200 hover:bg-gray-300'
                   }`}
                   onClick={() => i+1 < step && setStep(i+1)}
                   disabled={i+1 > step}
                   aria-current={step === i+1 ? 'step' : undefined}
-                >
-                  {title}
-                </button>
+                  aria-label={`Go to ${title} step`}
+                />
               ))}
             </div>
           </div>
