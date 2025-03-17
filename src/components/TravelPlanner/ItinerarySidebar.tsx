@@ -452,32 +452,34 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
         </div>
       </div>
 
-      {/* Day selector area */}
-      <div className="px-8 py-4 bg-white flex justify-between items-center border-b">
-        <h3 className="text-lg font-medium text-slate-700">Select Day:</h3>
-        
-        {/* Day selector */}
-        <div className="flex items-center">
-          <Select
-            value={selectedDay}
-            onValueChange={setSelectedDay}
-          >
-            <SelectTrigger className="w-[260px] h-10 border border-slate-300 rounded">
-              <SelectValue placeholder="Select a day" />
-            </SelectTrigger>
-            <SelectContent>
-              {itineraryDays.map((day) => (
-                <SelectItem key={day.dayNumber} value={day.dayNumber.toString()}>
-                  Day {day.dayNumber}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {/* Day selector area - Only show in day view */}
+      {viewMode === "day" && (
+        <div className="px-8 py-4 bg-white flex justify-between items-center border-b">
+          <h3 className="text-lg font-medium text-slate-700">Select Day:</h3>
+          
+          {/* Day selector */}
+          <div className="flex items-center">
+            <Select
+              value={selectedDay}
+              onValueChange={setSelectedDay}
+            >
+              <SelectTrigger className="w-[260px] h-10 border border-slate-300 rounded">
+                <SelectValue placeholder="Select a day" />
+              </SelectTrigger>
+              <SelectContent>
+                {itineraryDays.map((day) => (
+                  <SelectItem key={day.dayNumber} value={day.dayNumber.toString()}>
+                    Day {day.dayNumber}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Day title and Add button */}
-      <div className="px-8 py-4 bg-white flex justify-between items-center border-b">
+      {/* Day title and Add button - Removed border-b */}
+      <div className="px-8 py-4 bg-white flex justify-between items-center">
         <h3 className="text-2xl font-medium text-slate-800">
           {selectedDay !== "all" ? `Day ${selectedDay}` : "All Days"}
         </h3>
