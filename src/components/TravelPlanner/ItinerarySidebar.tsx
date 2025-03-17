@@ -691,9 +691,9 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               const dayNum = selectedDay !== "all" ? parseInt(selectedDay) : 0;
               handleAddActivity(dayNum);
             }}
-            className="h-8 px-3 border border-green-300 shadow-none bg-green-50 hover:bg-green-100 hover:border-green-300 focus:ring-green-500 transition-colors text-green-600 text-sm rounded-full"
+            className="h-8 px-3 border border-green-300 shadow-none bg-green-50 hover:bg-green-100 hover:border-green-300 focus:ring-green-500 transition-colors text-green-600 text-sm rounded"
           >
-            <Plus className="h-4 w-4 mr-1.5" />
+            <Plus className="h-4 w-4 mr-1.5 text-green-600" />
             Add Item
           </Button>
         </div>
