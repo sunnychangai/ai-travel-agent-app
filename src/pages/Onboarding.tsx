@@ -230,7 +230,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   };
 
   const handleBudgetChange = (value: string) => {
-    setPreferences(prev => ({ ...prev, budget: value }));
+    // Find the budget option with matching id
+    const selectedOption = BUDGET_OPTIONS.find(option => option.id === value);
+    // Save the description instead of just the symbol
+    const budgetDescription = selectedOption ? selectedOption.description : '';
+    setPreferences(prev => ({ ...prev, budget: budgetDescription }));
   };
 
   // Prevent scrolling on the background when modal is open
@@ -359,7 +363,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   onClick={() => handleBudgetChange(option.id)}
                   className={`
                     h-20 flex flex-col items-center justify-center rounded-xl border transition-all
-                    ${preferences.budget === option.id 
+                    ${preferences.budget === option.description 
                       ? 'border-blue-500 bg-blue-50/90 text-blue-700 shadow-sm' 
                       : 'border-gray-200 hover:border-gray-300 bg-white/90 backdrop-blur-sm text-gray-700 hover:bg-gray-50'}
                   `}
