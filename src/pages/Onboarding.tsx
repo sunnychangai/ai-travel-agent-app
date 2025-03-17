@@ -160,6 +160,17 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         throw new Error("User not authenticated");
       }
       
+      console.log("Saving preferences:", {
+        user_id: user.id,
+        name: preferences.name,
+        travel_style: preferences.travelStyle,
+        activities: preferences.activities,
+        preferences: preferences.preferences,
+        budget: preferences.budget,
+        dream_destinations: preferences.dreamDestinations,
+        created_at: new Date().toISOString()
+      });
+      
       const { error } = await supabase
         .from('user_preferences')
         .upsert({
@@ -171,9 +182,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           budget: preferences.budget,
           dream_destinations: preferences.dreamDestinations,
           created_at: new Date().toISOString()
-        });
+        }, { onConflict: 'user_id' });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase error:", error);
+        throw new Error(`Failed to save preferences: ${error.message}`);
+      }
 
       toast({
         title: "Preferences saved",
@@ -188,9 +202,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       }
       
     } catch (error: any) {
+      console.error("Error saving preferences:", error);
       toast({
-        title: "Error",
-        description: error.message,
+        title: "Error saving preferences",
+        description: error.message || "An unknown error occurred",
         variant: "destructive",
       });
     } finally {
