@@ -429,18 +429,9 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               {step !== 1 && <p className="text-gray-500 text-sm mb-4">{STEP_DESCRIPTIONS[step-1]}</p>}
             </div>
             
-            <AnimatePresence mode="wait">
-              <motion.div 
-                key={step}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.3 }}
-                className="py-1"
-              >
-                {renderStep()}
-              </motion.div>
-            </AnimatePresence>
+            <div className="py-1">
+              {renderStep()}
+            </div>
           </div>
           
           {/* Footer with buttons */}
