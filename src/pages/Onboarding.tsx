@@ -391,11 +391,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           
           {/* Navigation tabs */}
           <div className="pt-16 pb-4 px-8">
-            <div className="flex justify-between mb-2 gap-4 px-4">
+            <div className="flex justify-center mb-2 gap-4">
               {STEP_TITLES.map((title, i) => (
                 <button
                   key={i}
-                  className={`h-1 flex-1 rounded-full transition-colors ${
+                  className={`h-1 w-12 rounded-full transition-colors ${
                     step === i+1 
                       ? 'bg-gray-900' 
                       : 'bg-gray-200 hover:bg-gray-300'
