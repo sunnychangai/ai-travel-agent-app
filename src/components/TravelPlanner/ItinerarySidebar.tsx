@@ -537,16 +537,25 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
                 onChange={(e) => setItineraryTitle(e.target.value)}
                 onBlur={handleTitleSave}
                 onKeyDown={handleTitleKeyPress}
-                className="border-b border-slate-300 focus:border-blue-500 focus:outline-none py-1 px-0 bg-transparent"
+                className="w-full border-b border-slate-300 focus:border-blue-500 focus:outline-none py-1 px-0 bg-transparent"
                 autoFocus
               />
             ) : (
-              <button
+              <div 
+                className="flex items-center cursor-pointer" 
                 onClick={handleTitleEdit}
-                className="hover:text-blue-600 transition-colors focus:outline-none"
               >
-                {itineraryTitle}
-              </button>
+                <span>{itineraryTitle}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleTitleEdit();
+                  }}
+                  className="ml-2 text-slate-400 hover:text-blue-600 transition-colors focus:outline-none"
+                >
+                  <Edit2 className="h-3 w-3" />
+                </button>
+              </div>
             )}
           </h1>
           
