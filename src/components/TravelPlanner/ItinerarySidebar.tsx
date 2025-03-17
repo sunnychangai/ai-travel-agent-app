@@ -586,7 +586,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               value={selectedDay}
               onValueChange={setSelectedDay}
             >
-              <SelectTrigger className="w-[180px] h-8 border border-slate-200 rounded shadow-sm">
+              <SelectTrigger className="w-[180px] h-8 border border-slate-200 rounded shadow-sm pr-1">
                 <SelectValue placeholder="Select a day" />
               </SelectTrigger>
               <SelectContent>
