@@ -215,10 +215,10 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
                   </h2>
                   <Button 
                     variant="outline"
-                    className="h-8 px-3 border border-gray-200 shadow-sm bg-green-50 hover:bg-green-100 hover:border-gray-300 transition-colors text-sm font-medium text-green-700"
+                    className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
                     onClick={() => onEditDay?.(item.dayNumber)}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 mr-1.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     Add Item
                   </Button>
                 </div>
@@ -263,10 +263,10 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
             </h2>
             <Button 
               variant="outline"
-              className="h-8 px-3 border border-gray-200 shadow-sm bg-green-50 hover:bg-green-100 hover:border-gray-300 transition-colors text-sm font-medium text-green-700"
+              className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
               onClick={() => onEditDay?.(day.dayNumber)}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 mr-1.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               Add Item
             </Button>
           </div>
