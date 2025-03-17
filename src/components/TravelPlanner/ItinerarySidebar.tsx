@@ -551,8 +551,8 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
           </h1>
           
           <div className="flex items-center justify-between">
-            <div className="flex items-center text-slate-600">
-              <CalendarIcon className="h-5 w-5 mr-2 text-slate-500" />
+            <div className="flex items-center text-slate-400">
+              <CalendarIcon className="h-5 w-5 mr-2 text-slate-400" />
               <span className="text-sm">
                 {itineraryDays.length > 0 
                   ? itineraryDays.length === 1 
@@ -566,9 +566,9 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               variant="outline"
               size="sm"
               onClick={toggleViewMode}
-              className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-700 text-sm rounded"
+              className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-500 text-sm rounded"
             >
-              <ListIcon className="h-4 w-4 mr-1.5" />
+              <ListIcon className="h-4 w-4 mr-1.5 text-slate-400" />
               {viewMode === "day" ? "List View" : "Day View"}
             </Button>
           </div>
