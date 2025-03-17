@@ -361,7 +361,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl h-[520px] flex overflow-hidden rounded-2xl shadow-2xl">
+      <div className="w-full max-w-4xl h-[460px] flex overflow-hidden rounded-2xl shadow-2xl">
         {/* Left side - Background image with text overlay */}
         <div className="w-2/5 relative hidden md:block">
           <div 
@@ -390,7 +390,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           </button>
           
           {/* Navigation tabs */}
-          <div className="pt-12 pb-4 px-8">
+          <div className="pt-16 pb-4 px-8">
             <div className="flex justify-center space-x-2 mb-2">
               {STEP_TITLES.map((title, i) => (
                 <button
