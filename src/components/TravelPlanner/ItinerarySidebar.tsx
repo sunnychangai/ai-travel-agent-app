@@ -649,14 +649,8 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
                     <div key={day.dayNumber} className="space-y-4">
                       {day.activities.length === 0 ? (
                         <div>
-                          <div className="text-center py-4 text-slate-500 mb-4">
-                            No activities planned for this day yet. Add activities using the chat.
-                          </div>
-                          <div className="bg-white rounded-lg shadow p-4 mb-4 border border-slate-200">
-                            <div className="text-sm font-medium text-slate-900 mb-2">Sample Activity</div>
-                            <div className="text-xs text-slate-500 mb-2">9:00 AM - 11:00 AM</div>
-                            <div className="text-sm mb-2">This is where your activity details will appear.</div>
-                            <div className="text-xs text-slate-500">Location: Your destination</div>
+                          <div className="text-center py-8 text-slate-500">
+                            No activities planned for this day yet. Click 'Add Item' to start building your itinerary.
                           </div>
                         </div>
                       ) : (
