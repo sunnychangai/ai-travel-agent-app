@@ -118,7 +118,7 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
         />
       </div>
       
-      <div className="p-3 pb-6 border-t">
+      <div className="p-3 pb-20 md:pb-6 border-t">
         <ChatInputArea
           onSend={handleSendMessage}
           isDisabled={isInputDisabled}
