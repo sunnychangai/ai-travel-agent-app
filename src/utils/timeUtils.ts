@@ -63,7 +63,7 @@ export const convertTo24Hour = calculationCache.memoize((timeStr: string): strin
 
 /**
  * Converts a time string from 24-hour format to 12-hour format (with AM/PM)
- * @param timeStr Time string in "HH:MM" 24-hour format
+ * @param timeStr Time string in "HH:MM" 24-hour format, or numeric minutes as string
  * @returns Time string in "HH:MM AM/PM" format
  */
 export const convertToAMPM = calculationCache.memoize((timeStr: string): string => {
@@ -74,8 +74,29 @@ export const convertToAMPM = calculationCache.memoize((timeStr: string): string 
     return timeStr;
   }
   
-  let [hours, minutes] = timeStr.split(':');
+  // Check if it's a numeric string (representing minutes)
+  const numericValue = parseInt(timeStr, 10);
+  if (!isNaN(numericValue) && timeStr === numericValue.toString()) {
+    // This is a numeric value representing minutes, convert it
+    return minutesToTimeString(numericValue);
+  }
+  
+  // Handle standard HH:MM format
+  const parts = timeStr.split(':');
+  if (parts.length !== 2) {
+    // If it's not in expected format, return empty string
+    console.warn(`Invalid time format: ${timeStr}`);
+    return '';
+  }
+  
+  const [hours, minutes] = parts;
   let hoursNum = parseInt(hours, 10);
+  
+  if (isNaN(hoursNum)) {
+    console.warn(`Invalid hours in time: ${timeStr}`);
+    return '';
+  }
+  
   let period = hoursNum >= 12 ? 'PM' : 'AM';
   
   if (hoursNum === 0) {
@@ -163,4 +184,26 @@ export const parseTimeString = calculationCache.memoize((timeString: string): an
     hour12,
     minutes
   };
+});
+
+/**
+ * Converts minutes since midnight to a formatted time string
+ * @param minutes Total minutes from midnight (e.g., 60 = 1:00 AM, 720 = 12:00 PM)
+ * @returns Time string in "HH:MM AM/PM" format
+ */
+export const minutesToTimeString = calculationCache.memoize((minutes: number): string => {
+  if (isNaN(minutes) || minutes < 0) return '';
+  
+  // Handle values over 24 hours by taking modulo
+  const totalMinutes = minutes % (24 * 60);
+  
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  
+  // Convert to 12-hour format
+  let period = hours >= 12 ? 'PM' : 'AM';
+  let displayHours = hours % 12;
+  if (displayHours === 0) displayHours = 12;
+  
+  return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
 }); 
