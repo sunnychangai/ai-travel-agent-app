@@ -799,7 +799,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
                           Add your first item
                         </button>
                       </div>
-                    ) :
+                    ) : (
                       getActivitiesWithUniqueIds(day.activities).map((activity) => (
                         <ActivityCard
                           key={getActivityIdSafely(activity.id)}
