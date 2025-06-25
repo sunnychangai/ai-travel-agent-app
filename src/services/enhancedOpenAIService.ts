@@ -10,6 +10,11 @@ import { performanceConfig } from '../config/performance';
 
 // Initialize OpenAI client
 const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+
+if (!apiKey) {
+  console.warn('OpenAI API key missing. Check your .env file.');
+}
+
 const openai = new OpenAI({ 
   apiKey,
   dangerouslyAllowBrowser: true // Note: In production, you should use a backend proxy
@@ -530,6 +535,12 @@ export const enhancedOpenAIService = {
       cacheKey?: string 
     } = {}
   ) {
+    // Validate API key first
+    const currentApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    if (!currentApiKey || currentApiKey === 'your_openai_api_key') {
+      throw new Error('OpenAI API key is missing or not configured. Please check your environment variables in Vercel deployment settings.');
+    }
+
     // Format dates consistently
     const formattedStartDate = typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0];
     const formattedEndDate = typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0];
