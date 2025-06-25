@@ -53,6 +53,106 @@ function createEnhancedCacheKey(baseKey: string, params: Record<string, any>) {
  */
 export const enhancedOpenAIService = {
   /**
+   * Test API key configuration and connectivity
+   * @returns Promise with test results
+   */
+  async testApiConfiguration(): Promise<{
+    success: boolean;
+    message: string;
+    details: {
+      hasApiKey: boolean;
+      apiKeyFormat: string;
+      networkConnectivity: boolean;
+      apiResponse: boolean;
+    };
+  }> {
+    const details = {
+      hasApiKey: false,
+      apiKeyFormat: 'invalid',
+      networkConnectivity: false,
+      apiResponse: false,
+    };
+
+    try {
+      // Check if API key exists
+      const currentApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      details.hasApiKey = Boolean(currentApiKey);
+      
+      if (!currentApiKey) {
+        return {
+          success: false,
+          message: 'VITE_OPENAI_API_KEY environment variable is missing',
+          details
+        };
+      }
+
+      // Check API key format
+      if (currentApiKey === 'your_openai_api_key' || currentApiKey.length < 20) {
+        details.apiKeyFormat = 'placeholder';
+        return {
+          success: false,
+          message: 'API key appears to be a placeholder or invalid',
+          details
+        };
+      }
+
+      if (currentApiKey.startsWith('sk-')) {
+        details.apiKeyFormat = 'valid';
+      } else {
+        details.apiKeyFormat = 'unknown';
+      }
+
+      // Test network connectivity with a simple API call
+      try {
+        const response = await openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: 'Test' }],
+          max_tokens: 5,
+        });
+
+        details.networkConnectivity = true;
+        details.apiResponse = Boolean(response.choices?.[0]?.message);
+
+        return {
+          success: true,
+          message: 'API configuration is working correctly',
+          details
+        };
+      } catch (apiError: any) {
+        details.networkConnectivity = true; // We reached the API
+        
+        if (apiError.message?.includes('rate limit')) {
+          return {
+            success: false,
+            message: 'API key is valid but rate limited. Try again later.',
+            details
+          };
+        }
+        
+        if (apiError.message?.includes('authentication') || apiError.message?.includes('API key')) {
+          return {
+            success: false,
+            message: 'API key is invalid or unauthorized',
+            details
+          };
+        }
+
+        return {
+          success: false,
+          message: `API error: ${apiError.message}`,
+          details
+        };
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Configuration test failed: ${error.message}`,
+        details
+      };
+    }
+  },
+
+  /**
    * Make multiple OpenAI API calls in parallel
    * @param requests Array of request configs
    * @param options Options including abort signal

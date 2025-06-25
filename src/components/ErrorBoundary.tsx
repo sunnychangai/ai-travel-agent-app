@@ -4,7 +4,7 @@ import { AlertCircle } from 'lucide-react';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
-  fallback?: ReactNode;
+  fallback?: ReactNode | ((error: Error) => ReactNode);
 }
 
 interface ErrorBoundaryState {
@@ -35,6 +35,10 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     if (this.state.hasError) {
       // Render custom fallback UI if provided
       if (this.props.fallback) {
+        // Check if fallback is a function
+        if (typeof this.props.fallback === 'function') {
+          return this.props.fallback(this.state.error!);
+        }
         return this.props.fallback;
       }
 

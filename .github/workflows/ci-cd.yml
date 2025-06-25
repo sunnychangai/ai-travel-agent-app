@@ -53,8 +53,8 @@ jobs:
     if: github.ref == 'refs/heads/main' # Only deploy on main branch
 
     env:
-      VITE_SUPABASE_URL: ${{ secrets.https://phxgvubludqngiggaepr.supabase.co }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBoeGd2dWJsdWRxbmdpZ2dhZXByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIxNjA1MjEsImV4cCI6MjA1NzczNjUyMX0.R3cPvhaG5rZS6D0tcTwpAX4PGMQ4_kYpV80rLws5nEY }}
+      VITE_SUPABASE_URL: ${{ secrets. }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets. }}
       # Add other environment variables needed for deployment
 
     steps:
