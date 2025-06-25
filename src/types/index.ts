@@ -18,7 +18,7 @@ export interface Activity {
   title: string;
   description: string;
   location: string;
-  time: string;
+  time?: string;
   type?: string;
   imageUrl?: string;
   dayNumber?: number;
@@ -59,6 +59,10 @@ export interface ActivityEditModalProps {
     endTime?: string;
     imageUrl?: string;
     type?: string;
+    time?: string;
+    displayStartTime?: string;
+    displayEndTime?: string;
+    dayNumber?: number;
   };
   onSave: (activity: Activity) => void;
   isNewActivity?: boolean;

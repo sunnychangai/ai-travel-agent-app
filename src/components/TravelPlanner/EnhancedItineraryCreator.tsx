@@ -496,7 +496,7 @@ const EnhancedItineraryCreator: React.FC<EnhancedItineraryCreatorProps> = ({
       
       {/* Progress Modal */}
       <ItineraryProgress
-        status={itineraryCreationStatus}
+        status={itineraryCreationStatus as 'idle' | 'loading' | 'success' | 'error'}
         progress={itineraryCreationProgress}
         step={itineraryCreationStep}
         onCancel={cancelItineraryCreation}

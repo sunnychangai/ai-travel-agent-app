@@ -121,24 +121,7 @@ export function useEnhancedOpenAI() {
   /**
    * Internal function to try generating an itinerary
    */
-  const tryGenerateItinerary = useCallback(async (
-    params: {
-      destination: string;
-      startDate: string;
-      endDate: string;
-      interests: string[];
-      preferences: {
-        travelStyle: string;
-        travelGroup: string;
-        budget: string;
-        transportMode: string;
-        dietaryPreferences: string[];
-        pace: 'slow' | 'moderate' | 'fast';
-      };
-      onProgress?: (progress: number, step: string) => void;
-    }, 
-    numberOfDays: number
-  ) => {
+  const tryGenerateItinerary = useCallback(async (params: any, numberOfDays: number) => {
     // Phase 1: Start generation (30%)
     updateProgress(5, 'Planning your perfect trip...');
     if (params.onProgress) params.onProgress(5, 'Planning your perfect trip...');
@@ -168,8 +151,8 @@ export function useEnhancedOpenAI() {
     if (cancelTokenRef.current) return null;
     
     // Phase 2: Enhance the activity descriptions (90%)
-    const activities = (result as ItineraryResult).days.flatMap((day: Day) => 
-      day.activities.map((activity: Activity) => ({
+    const activities = result.days.flatMap((day: any) =>
+      day.activities.map((activity: any) => ({
         id: activity.id,
         title: activity.title,
         description: activity.description || '',
@@ -205,9 +188,9 @@ export function useEnhancedOpenAI() {
     // Update activities in the result
     const enhancedResult = {
       ...(result as ItineraryResult),
-      days: (result as ItineraryResult).days.map((day: Day) => ({
+      days: result.days.map((day: any) => ({
         ...day,
-        activities: day.activities.map((activity: Activity) => {
+        activities: day.activities.map((activity: any) => {
           const enhanced = enhancedActivityMap.get(activity.id);
           if (enhanced) {
             return {

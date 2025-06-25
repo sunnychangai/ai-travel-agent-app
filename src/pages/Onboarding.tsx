@@ -141,7 +141,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               travelStyle: existingPrefs.travel_style || [],
               activities: existingPrefs.activities || [],
               preferences: existingPrefs.preferences || [],
-              budget: budgetValue,
+              budget: budgetValue || '',
               dreamDestinations: existingPrefs.dream_destinations || ''
             });
             console.log("Loaded existing preferences:", existingPrefs);

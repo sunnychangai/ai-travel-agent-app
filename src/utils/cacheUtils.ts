@@ -250,7 +250,7 @@ export class ApiCache<T> {
         return result;
       } catch (error) {
         // Check if this is an abort error
-        if (error.name === 'AbortError' || error.message?.includes('abort')) {
+        if ((error as Error).name === 'AbortError' || (error as Error).message?.includes('abort')) {
           console.log(`Request for ${key} was aborted`);
         } else {
           console.error(`Error fetching data for ${key}:`, error);
@@ -297,7 +297,7 @@ export class ApiCache<T> {
       return result;
     } catch (error) {
       // Check if this is an abort error
-      if (error.name === 'AbortError' || error.message?.includes('abort')) {
+      if ((error as Error).name === 'AbortError' || (error as Error).message?.includes('abort')) {
         console.log(`Request for ${key} was aborted`);
         
         // If we have an old entry, return it even though it's expired
@@ -334,7 +334,7 @@ export class ApiCache<T> {
         }
       } catch (error) {
         // Handle abort errors more gracefully
-        if (error.name === 'AbortError' || error.message?.includes('abort')) {
+        if ((error as Error).name === 'AbortError' || (error as Error).message?.includes('abort')) {
           console.log(`Background refresh aborted for ${key}`);
         } else {
           console.error(`Background refresh failed for ${key}:`, error);

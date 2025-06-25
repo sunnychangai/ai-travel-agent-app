@@ -783,7 +783,7 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
           console.log('Loaded itineraries from Supabase:', itineraries);
           
           // Transform Supabase format to match the expected format
-          return itineraries.map(itinerary => ({
+          return itineraries.map((itinerary: any) => ({
             id: itinerary.id,
             title: itinerary.name,
             destination: itinerary.destination,

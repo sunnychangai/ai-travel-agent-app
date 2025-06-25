@@ -2,8 +2,8 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 
-interface ItineraryProgressProps {
-  status: 'idle' | 'loading' | 'starting' | 'success' | 'error';
+export interface ItineraryProgressProps {
+  status: 'idle' | 'loading' | 'success' | 'error' | 'starting';
   progress: number;
   step: string;
   onCancel?: () => void;

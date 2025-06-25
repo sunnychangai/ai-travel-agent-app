@@ -354,7 +354,7 @@ export const enhancedOpenAIService = {
         return {
           dayNumber: i + 1,
           date: currentDate.toISOString().split('T')[0], // Format to YYYY-MM-DD
-          activities: plan.orderedActivities || [],
+          activities: (plan as any).orderedActivities || [],
         };
       }),
     };
@@ -396,8 +396,8 @@ export const enhancedOpenAIService = {
     // Merge the balanced and personalized results
     // (In practice, you'd need to implement a smarter merging algorithm)
     return {
-      ...balancedItinerary,
-      ...personalizedItinerary,
+      ...(balancedItinerary as any),
+      ...(personalizedItinerary as any),
       destination,
       startDate,
       endDate
@@ -441,7 +441,7 @@ export const enhancedOpenAIService = {
       for (let j = 0; j < batch.length; j++) {
         const index = i + j;
         if (index < enhancedActivities.length) {
-          enhancedActivities[index].description = enhancedDescriptions[j];
+          enhancedActivities[index].description = (enhancedDescriptions[j] as string);
         }
       }
     }
@@ -488,7 +488,10 @@ export const enhancedOpenAIService = {
     // Create a map of id to categorization
     const categorizationMap = new Map();
     for (const cat of categorizations) {
-      categorizationMap.set(cat.id, { category: cat.category, subcategory: cat.subcategory });
+      categorizationMap.set((cat as any).id, { 
+        category: (cat as any).category, 
+        subcategory: (cat as any).subcategory 
+      });
     }
     
     // Apply categorizations to original activities
@@ -621,14 +624,14 @@ export const enhancedOpenAIService = {
               }
             } catch (error) {
               // Check if this is an abort error
-              if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+              if ((error as Error).name === 'AbortError' || (error as Error).message?.includes('aborted')) {
                 console.log('Itinerary generation aborted by user.');
                 throw error; // Re-throw abort errors to be handled by caller
               }
               
               // For other errors, try to provide a more helpful message
               console.error('Error in OpenAI API call:', error);
-              throw new Error(`Failed to generate itinerary: ${error.message || 'Unknown error'}`);
+              throw new Error(`Failed to generate itinerary: ${(error as Error).message || 'Unknown error'}`);
             }
           }
           
@@ -673,13 +676,19 @@ export const enhancedOpenAIService = {
         } catch (error: any) {
           console.error('Error generating complete itinerary:', error);
           
+          // Calculate dayCount for error context
+          const dayCount = Math.ceil(
+            (new Date(formattedEndDate).getTime() - new Date(formattedStartDate).getTime()) / 
+            (1000 * 60 * 60 * 24)
+          ) + 1;
+          
           // Better error context for debugging
           const errorContext = {
             destination,
-            startDate,
-            endDate,
-            interests,
-            preferences,
+            startDate: formattedStartDate,
+            endDate: formattedEndDate,
+            interests: userPreferences.interests || [],
+            preferences: userPreferences,
             dayCount
           };
           
@@ -850,15 +859,15 @@ The response MUST be valid JSON without markdown formatting or code blocks.
           allActivities.map(activity => 
             deduplicateRequest(
               `googlemaps:${options.destination}:${activity.title}`,
-              () => googleMapsService.getPlaceDetails(activity.title, options.destination)
+              () => googleMapsService.getPlaceDetails(activity.title)
                 .then(details => {
                   if (details) {
                     // Update the activity with Google Maps data
                     const activityToUpdate = activitiesById.get(activity.id);
                     if (activityToUpdate) {
-                      activityToUpdate.location = details.address || activityToUpdate.location;
+                      activityToUpdate.location = details.formatted_address || activityToUpdate.location;
                       activityToUpdate.rating = details.rating || activityToUpdate.rating;
-                      activityToUpdate.mapUrl = details.mapUrl || activityToUpdate.mapUrl;
+                      activityToUpdate.mapUrl = details.url || activityToUpdate.mapUrl;
                       activityToUpdate.photos = details.photos || activityToUpdate.photos;
                     }
                   }
@@ -880,21 +889,21 @@ The response MUST be valid JSON without markdown formatting or code blocks.
           allActivities.map(activity => 
             deduplicateRequest(
               `tripadvisor:${options.destination}:${activity.title}`,
-              () => tripAdvisorService.getAttractionDetails(activity.title, options.destination)
-                .then(details => {
+              () => tripAdvisorService.getLocationDetails(activity.title)
+                .then((details: any) => {
                   if (details) {
                     // Update the activity with TripAdvisor data
                     const activityToUpdate = activitiesById.get(activity.id);
                     if (activityToUpdate) {
                       activityToUpdate.tripAdvisorRating = details.rating || activityToUpdate.tripAdvisorRating;
-                      activityToUpdate.reviewCount = details.reviewCount || activityToUpdate.reviewCount;
-                      activityToUpdate.tripAdvisorUrl = details.url || activityToUpdate.tripAdvisorUrl;
-                      activityToUpdate.price = details.price || activityToUpdate.price;
-                      activityToUpdate.category = details.category || activityToUpdate.category;
+                      activityToUpdate.reviewCount = details.num_reviews || activityToUpdate.reviewCount;
+                      activityToUpdate.tripAdvisorUrl = details.web_url || activityToUpdate.tripAdvisorUrl;
+                      activityToUpdate.price = details.price_level || activityToUpdate.price;
+                      activityToUpdate.category = details.category?.name || activityToUpdate.category;
                     }
                   }
                 })
-                .catch(error => {
+                .catch((error: any) => {
                   console.error(`Error getting TripAdvisor data for ${activity.title}:`, error);
                   // Continue with other activities even if one fails
                 })
@@ -988,7 +997,7 @@ Return ONLY a JSON object with these fields:
       }));
       
       const extractedText = response.choices[0].message.content;
-      return JSON.parse(extractedText);
+      return JSON.parse(extractedText || '{}');
     } catch (error) {
       console.error('Error extracting itinerary parameters:', error);
       throw new Error('Failed to parse your request. Please try again with more details.');
@@ -1011,9 +1020,9 @@ CURRENT ITINERARY:
 Destination: ${currentItinerary.destination}
 Start Date: ${currentItinerary.startDate}
 End Date: ${currentItinerary.endDate}
-${currentItinerary.itinerary.map(day => `
+${currentItinerary.itinerary.map((day: any) => `
 ${day.day}
-${day.activities.map(activity => `  - ${activity.time}: ${activity.name} at ${activity.address}`).join('\n')}
+${day.activities.map((activity: any) => `  - ${activity.time}: ${activity.name} at ${activity.address}`).join('\n')}
 `).join('\n')}
 
 USER REQUEST:
@@ -1058,7 +1067,7 @@ Return ONLY the JSON response with no additional text or explanation.
       }));
       
       const updatedItineraryText = response.choices[0].message.content;
-      const updatedItinerary = JSON.parse(updatedItineraryText);
+      const updatedItinerary = JSON.parse(updatedItineraryText || '{}');
       
       return updatedItinerary;
     } catch (error) {
@@ -1116,7 +1125,7 @@ Return a JSON object with the merged preferences (current + new):
       }));
       
       const extractedText = response.choices[0].message.content;
-      return JSON.parse(extractedText);
+      return JSON.parse(extractedText || '{}');
     } catch (error) {
       console.error('Error extracting user preferences:', error);
       // Return the current preferences if extraction fails

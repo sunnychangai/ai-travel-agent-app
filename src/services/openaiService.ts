@@ -88,30 +88,10 @@ const logDev = (...args: any[]) => {
 async function callWithRetry<T>(fn: () => Promise<T>): Promise<T> {
   return withRetry(fn, {
     maxRetries: 3,
-    retryDelay: 1000,
-    retryBackoffFactor: 2,
+    initialDelay: 1000,
+    maxDelay: 5000,
     shouldRetry: (error) => {
-      // Retry on network errors, rate limit errors, and certain OpenAI API errors
-      if (error instanceof ApiError) {
-        return (
-          error.isNetworkError || 
-          error.isRateLimitError || 
-          error.status === 502 || // Bad Gateway
-          error.status === 503 || // Service Unavailable
-          error.status === 504    // Gateway Timeout
-        );
-      }
-      
-      // Also retry on generic OpenAI timeouts or capacity errors
-      if (error.message && (
-        error.message.includes('timeout') || 
-        error.message.includes('capacity') ||
-        error.message.includes('rate limit')
-      )) {
-        return true;
-      }
-      
-      return false;
+      return error.status === 429 || error.status === 503 || error.status >= 500;
     }
   });
 }
@@ -367,7 +347,7 @@ export const openaiService = {
       const tours = await tripAdvisorService.searchTours(locations[0].location_id);
       
       // Format tours data for the prompt
-      const toursData = tours.slice(0, 5).map(tour => ({
+      const toursData: any[] = tours.slice(0, 5).map(tour => ({
         name: tour.name,
         description: tour.description || 'No description available',
         rating: tour.rating || 'No rating available',
@@ -427,12 +407,7 @@ export const openaiService = {
       }));
       
       // Get tours if attractions are available
-      let toursData: Array<{
-        name: string;
-        description: string;
-        rating: string;
-        price: string;
-      }> = [];
+      let toursData: any[] = [];
       if (attractions.length > 0) {
         const tours = await tripAdvisorService.searchTours(attractions[0].location_id);
         toursData = tours.slice(0, 3).map(tour => ({

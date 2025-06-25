@@ -473,6 +473,9 @@ export const databaseService = {
         
       if (itineraryError) throw itineraryError;
       
+      // Calculate dayCount from the maximum day number in activities
+      const dayCount = Math.max(...Array.from(dayMap.keys()), 1);
+      
       // If we have a start_date, calculate dates for each day
       if (itinerary.start_date) {
         const startDate = safeParseDate(itinerary.start_date);

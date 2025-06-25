@@ -20,7 +20,7 @@ interface CacheOptions {
   useCache?: boolean;
   cacheKey?: string;
   cacheDuration?: number;
-  cache?: ApiCache;
+  cache?: ApiCache<any>;
 }
 
 /**
@@ -214,8 +214,9 @@ export function deduplicateRequest<T>(
   expiryMs: number = 1000
 ): Promise<T> {
   // If this exact request is already in progress, return the existing promise
-  if (pendingRequests.has(cacheKey)) {
-    return pendingRequests.get(cacheKey);
+  const pendingRequest = pendingRequests.get(cacheKey);
+  if (pendingRequest) {
+    return pendingRequest;
   }
   
   // Otherwise, make the request and cache the promise

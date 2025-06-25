@@ -299,7 +299,7 @@ export const UserPreferencesService = {
         
         // Handle array fields carefully, merging them without duplicates
         interests: [
-          ...currentPreferences.interests || [],
+          ...(currentPreferences?.interests || []),
           ...(inferredPreferences.interests?.map((interest: string) => ({
             id: interest.toLowerCase().replace(/\s/g, ''),
             label: interest
@@ -310,7 +310,7 @@ export const UserPreferencesService = {
         ),
         
         dietaryPreferences: [
-          ...currentPreferences.dietaryPreferences || [],
+          ...(currentPreferences?.dietaryPreferences || []),
           ...(inferredPreferences.dietaryPreferences?.map((pref: string) => ({
             id: pref.toLowerCase().replace(/\s/g, ''),
             label: pref

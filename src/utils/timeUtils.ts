@@ -128,7 +128,7 @@ export const formatTimeRange = calculationCache.memoize((startTime: string, endT
  * @param timeString Time string in any format
  * @returns Object with different formats of the time
  */
-export const parseTimeString = calculationCache.memoize((timeString: string) => {
+export const parseTimeString = calculationCache.memoize((timeString: string): any => {
   if (!timeString) return { 
     original: '',
     hour24: '',
@@ -139,8 +139,8 @@ export const parseTimeString = calculationCache.memoize((timeString: string) => 
   // Handle time ranges (e.g. "9:00 AM - 11:00 AM")
   if (timeString.includes(' - ')) {
     const [startTime, endTime] = timeString.split(' - ');
-    const parsedStart = parseTimeString(startTime);
-    const parsedEnd = parseTimeString(endTime);
+    const parsedStart: any = parseTimeString(startTime);
+    const parsedEnd: any = parseTimeString(endTime);
     
     return {
       original: timeString,
