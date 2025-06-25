@@ -856,7 +856,7 @@ The response MUST be valid JSON without markdown formatting or code blocks.
       // Get Google Maps data for all activities in parallel
       enhancementPromises.push(
         Promise.all(
-          allActivities.map(activity => 
+          allActivities.map((activity: any) => 
             deduplicateRequest(
               `googlemaps:${options.destination}:${activity.title}`,
               () => googleMapsService.getPlaceDetails(activity.title)
@@ -886,7 +886,7 @@ The response MUST be valid JSON without markdown formatting or code blocks.
       // Get TripAdvisor data for all activities in parallel
       enhancementPromises.push(
         Promise.all(
-          allActivities.map(activity => 
+          allActivities.map((activity: any) => 
             deduplicateRequest(
               `tripadvisor:${options.destination}:${activity.title}`,
               () => tripAdvisorService.getLocationDetails(activity.title)

@@ -25,15 +25,10 @@ export const timeToMinutes = calculationCache.memoize((timeString: string): numb
  * @param activities Array of activities with a time property
  * @returns Sorted array
  */
-export const sortActivitiesByTime = <T extends { time: string }>(activities: T[]): T[] => {
-  // Quick return for small arrays
-  if (!activities || activities.length <= 1) {
-    return [...activities];
-  }
-  
-  return memoizedSort(activities, (a, b) => {
-    const timeA = timeToMinutes(a.time);
-    const timeB = timeToMinutes(b.time);
+export const sortActivitiesByTime = <T extends { time?: string }>(activities: T[]): T[] => {
+  return activities.sort((a, b) => {
+    const timeA = timeToMinutes(a.time || '');
+    const timeB = timeToMinutes(b.time || '');
     return timeA - timeB;
   });
 };

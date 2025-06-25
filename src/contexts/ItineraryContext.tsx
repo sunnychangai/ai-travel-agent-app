@@ -276,8 +276,8 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
         return hours * 60 + minutes;
       };
       
-      const timeA = getMinutes(a.time);
-      const timeB = getMinutes(b.time);
+      const timeA = getMinutes(a.time || '');
+      const timeB = getMinutes(b.time || '');
       return timeA - timeB;
     });
   }, []);

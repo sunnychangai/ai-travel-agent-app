@@ -835,16 +835,12 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
           setEditModalOpen(open);
           if (!open) setCurrentActivity(null);
         }}
-        activity={currentActivity || {
-          id: '',
-          title: '',
-          description: '',
-          location: '',
-          date: new Date(),
-          startTime: "12:00",
-          endTime: "",
-          imageUrl: '',
-          type: 'Activity'
+        activity={{
+          ...(currentActivity || {}),
+          id: currentActivity?.id || '',
+          title: currentActivity?.title || '',
+          description: currentActivity?.description || '',
+          location: currentActivity?.location || ''
         }}
         onSave={(modalActivity) => {
           const dayNum = selectedDay !== "all" && selectedDay !== "list" 

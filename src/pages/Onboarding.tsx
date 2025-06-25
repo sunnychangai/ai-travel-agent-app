@@ -128,7 +128,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
           if (existingPrefs && !error) {
             // Convert database format to component format
             // Map budget description back to budget ID for proper selection
-            let budgetValue = existingPrefs.budget || '';
+            let budgetValue: string = String(existingPrefs.budget || '');
             if (budgetValue) {
               const budgetOption = BUDGET_OPTIONS.find(opt => opt.description === budgetValue);
               if (budgetOption) {
@@ -137,12 +137,12 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             }
             
             setPreferences({
-              name: existingPrefs.name || '',
-              travelStyle: existingPrefs.travel_style || [],
-              activities: existingPrefs.activities || [],
-              preferences: existingPrefs.preferences || [],
+              name: (existingPrefs as any)?.name || '',
+              travelStyle: (existingPrefs as any)?.travel_style || [],
+              activities: (existingPrefs as any)?.activities || [],
+              preferences: (existingPrefs as any)?.preferences || [],
               budget: budgetValue || '',
-              dreamDestinations: existingPrefs.dream_destinations || ''
+              dreamDestinations: (existingPrefs as any)?.dream_destinations || ''
             });
             console.log("Loaded existing preferences:", existingPrefs);
           }

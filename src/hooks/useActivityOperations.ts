@@ -164,7 +164,7 @@ export const useActivityOperations = () => {
         const date = safeParseDate(day.date, undefined, new Date());
         
         // Parse the time string to extract start and end times
-        const { displayStartTime, displayEndTime, parsedStartTime, parsedEndTime } = parseTimeString(activity.time);
+        const { displayStartTime, displayEndTime, parsedStartTime, parsedEndTime } = parseTimeString(activity.time || '');
         
         setCurrentActivity({
           ...activity,
@@ -233,7 +233,7 @@ export const useActivityOperations = () => {
       
       console.log("Saving activity with formatted time:", formattedTime);
     } else if ('time' in updatedActivity) {
-      formattedTime = updatedActivity.time;
+      formattedTime = updatedActivity.time || '';
     }
     
     // Use determineActivityType to set a more accurate type if the user didn't specify one

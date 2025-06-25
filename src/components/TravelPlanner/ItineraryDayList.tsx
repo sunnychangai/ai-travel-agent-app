@@ -67,7 +67,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
       });
 
       // Add sorted activities
-      sortActivitiesByTime(day.activities).forEach(activity => {
+      sortActivitiesByTime(day.activities).forEach((activity: Activity) => {
         items.push({
           type: 'activity',
           dayNumber: day.dayNumber,
@@ -256,7 +256,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
             
             {/* Sort activities by time before rendering */}
             <div className="space-y-4 px-3 pr-0">
-              {sortedActivities.map((activity) => (
+              {sortedActivities.map((activity: Activity, index: number) => (
                 <ActivityCard
                   key={getActivityIdSafely(activity.id)}
                   activity={ensureActivityId(activity)}
