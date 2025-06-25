@@ -25,6 +25,7 @@ export default function TravelPlannerLayout({
   const [isLoading, setIsLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
+  const [hasNewItineraryUpdate, setHasNewItineraryUpdate] = useState(false);
   
   const {
     itineraryDays,
@@ -40,6 +41,8 @@ export default function TravelPlannerLayout({
   
   // Use ref to track if we've refreshed for this update
   const hasRefreshedRef = useRef(false);
+  // Track previous itinerary length to detect when new content is added
+  const previousItineraryLengthRef = useRef(0);
   
   // Check if device is mobile
   useEffect(() => {
@@ -53,10 +56,14 @@ export default function TravelPlannerLayout({
     return () => window.removeEventListener('resize', checkIsMobile);
   }, []);
   
-  // Log itinerary changes for debugging
+  // Log itinerary changes for debugging and handle mobile tab switching
   useEffect(() => {
     console.log("TravelPlannerLayout: Itinerary days changed");
     console.log(`TravelPlannerLayout: Current itinerary days: ${itineraryDays.length}`);
+    
+    // Check if we have actual activities (not just empty days)
+    const totalActivities = itineraryDays.reduce((total, day) => total + day.activities.length, 0);
+    const previousTotalActivities = previousItineraryLengthRef.current;
     
     // Only force refresh if we haven't done it yet for this update
     if (itineraryDays.length > 0 && !hasRefreshedRef.current) {
@@ -68,7 +75,28 @@ export default function TravelPlannerLayout({
         hasRefreshedRef.current = false;
       }, 1000);
     }
-  }, [itineraryDays]);
+    
+    // Handle mobile tab switching and notifications when actual content is generated
+    if (isMobile && totalActivities > previousTotalActivities && totalActivities > 0) {
+      console.log("TravelPlannerLayout: New itinerary content detected, switching to itinerary tab");
+      // Switch to itinerary tab when actual itinerary content is generated
+      setActiveTab("itinerary");
+      setHasNewItineraryUpdate(false); // Clear notification since we're switching
+    } else if (totalActivities > previousTotalActivities && totalActivities > 0 && activeTab === "chat") {
+      // Show notification indicator if user is still on chat tab
+      setHasNewItineraryUpdate(true);
+    }
+    
+    // Update the reference for next comparison
+    previousItineraryLengthRef.current = totalActivities;
+  }, [itineraryDays, isMobile, activeTab]);
+
+  // Clear notification when user manually switches to itinerary tab
+  useEffect(() => {
+    if (activeTab === "itinerary") {
+      setHasNewItineraryUpdate(false);
+    }
+  }, [activeTab]);
 
   const handleDestinationDetected = (destination: string, date: string) => {
     // Add a new day for the detected destination
@@ -81,10 +109,8 @@ export default function TravelPlannerLayout({
     // Force refresh after adding a day
     setTimeout(() => forceRefresh(), 100);
     
-    // Switch to itinerary tab on mobile when destination is detected
-    if (isMobile) {
-      setActiveTab("itinerary");
-    }
+    // Don't automatically switch tabs - let the user continue their conversation
+    // Tab switching will happen when actual itinerary content is generated
   };
 
   const handleAddActivity = (dayNumber: number, activity: any) => {
@@ -221,10 +247,16 @@ export default function TravelPlannerLayout({
               </TabsTrigger>
               <TabsTrigger 
                 value="itinerary" 
-                className="flex flex-col items-center justify-center gap-1 h-full data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600"
+                className="flex flex-col items-center justify-center gap-1 h-full data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 relative"
               >
                 <Calendar className="h-5 w-5" />
                 <span className="text-xs font-medium">Itinerary</span>
+                {/* Notification indicator */}
+                {hasNewItineraryUpdate && (
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
+                    <div className="w-2 h-2 bg-white rounded-full"></div>
+                  </div>
+                )}
               </TabsTrigger>
             </TabsList>
           </div>
