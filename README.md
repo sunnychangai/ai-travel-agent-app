@@ -1,14 +1,75 @@
 # AI Travel Planner
 
-An intelligent travel planning application that helps users create personalized travel itineraries with AI assistance.
+An intelligent travel planning application that helps users create personalized itineraries using AI.
 
 ## Features
 
-- Interactive chat interface with AI travel assistant
-- Dynamic itinerary creation and management
-- AI-powered travel suggestions based on user preferences
-- Ability to save, share, and export itineraries
-- Responsive design for desktop and mobile use
+- AI-powered itinerary generation
+- Personalized recommendations based on user preferences
+- Interactive chat interface
+- Comprehensive travel planning tools
+- Real-time itinerary updates
+
+## Environment Variables
+
+This application requires the following environment variables:
+
+```
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_OPENAI_API_KEY=your_openai_api_key
+VITE_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+VITE_TRIPADVISOR_API_KEY=your_tripadvisor_api_key
+```
+
+## Troubleshooting
+
+### "Oops! There was a problem" Error
+
+If you see this error when trying to generate an itinerary, it's likely due to missing or incorrectly configured environment variables in your Vercel deployment.
+
+#### Steps to Fix:
+
+1. **Check Environment Variables in Vercel:**
+   - Go to your Vercel dashboard
+   - Select your project
+   - Navigate to Settings → Environment Variables
+   - Ensure all required variables are present and have valid values
+
+2. **Use the Diagnostic Tool:**
+   - When you encounter the error, click "Run Diagnostic" to test your API configuration
+   - This will help identify which specific configuration is causing the issue
+
+3. **Common Issues:**
+   - **Missing API Key**: `VITE_OPENAI_API_KEY` is not set in Vercel
+   - **Placeholder Values**: API key is still set to `your_openai_api_key`
+   - **Invalid Format**: API key doesn't start with `sk-` or is too short
+   - **Network Issues**: Connectivity problems with OpenAI API
+
+4. **How to Add Environment Variables in Vercel:**
+   - In your Vercel project dashboard, go to Settings
+   - Click on "Environment Variables"
+   - Add each variable with its corresponding value
+   - Make sure to select the appropriate environments (Production, Preview, Development)
+   - Redeploy your application after adding variables
+
+#### Getting API Keys:
+
+- **OpenAI API Key**: Visit [OpenAI Platform](https://platform.openai.com/api-keys) to create an API key
+- **Supabase**: Get your URL and anon key from your [Supabase dashboard](https://supabase.com/dashboard)
+- **Google Maps API**: Create a key in the [Google Cloud Console](https://console.cloud.google.com/)
+- **TripAdvisor API**: Register at [TripAdvisor Developer Portal](https://developer-tripadvisor.com/)
+
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+## Deployment
+
+This app is designed to be deployed on Vercel. Make sure to configure all environment variables in your Vercel project settings before deployment.
 
 ## Tech Stack
 
@@ -147,42 +208,4 @@ export default {
 
 - Replace `plugin:@typescript-eslint/recommended` to `plugin:@typescript-eslint/recommended-type-checked` or `plugin:@typescript-eslint/strict-type-checked`
 - Optionally add `plugin:@typescript-eslint/stylistic-type-checked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `extends` list
-
-## CI/CD Pipeline
-
-This project uses GitHub Actions for continuous integration and deployment. The pipeline performs the following steps:
-
-### For every push and pull request to the main branch:
-1. Builds the application
-2. Runs linting checks
-3. Executes tests
-
-### For pushes to the main branch only:
-1. Deploys the application to the staging environment
-
-### Setting up deployment
-
-To enable deployment to staging, you need to configure the following GitHub Secrets:
-
-#### For Vercel deployment:
-- `VERCEL_TOKEN`: Your Vercel API token
-- `VERCEL_ORG_ID`: Your Vercel organization ID
-- `VERCEL_PROJECT_ID`: Your Vercel project ID
-
-#### Environment variables:
-- `VITE_SUPABASE_URL`: Your Supabase URL
-- `VITE_SUPABASE_ANON_KEY`: Your Supabase anonymous key
-
-### Running the pipeline locally
-
-You can test the build and test steps locally with:
-
-```bash
-npm ci
-npm run lint
-npm test
-npm run build
-```
-
-The CI/CD pipeline configuration is located in `.github/workflows/ci-cd.yml`.
+- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `
