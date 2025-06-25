@@ -95,6 +95,42 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
   
   // Add a ref to track if we've loaded from localStorage
   const hasLoadedFromStorage = useRef(false);
+  
+  // Reset loading flag when user changes
+  useEffect(() => {
+    hasLoadedFromStorage.current = false;
+    
+    // Clear session storage when user changes to prevent conflicts
+    // This ensures each user gets a fresh start
+    try {
+      sessionStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+      sessionStorage.removeItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
+      console.log('Cleared session storage for user change');
+    } catch (error) {
+      console.error('Error clearing session storage on user change:', error);
+    }
+    
+    // Also reset the itinerary state to prevent showing previous user's data
+    if (user) {
+      // Only clear state if we're switching to a different user
+      // Don't clear on initial load
+      const currentUserId = sessionStorage.getItem('currentUserId');
+      if (currentUserId && currentUserId !== user.id) {
+        setItineraryDays([]);
+        setCurrentItineraryId(null);
+        setCurrentItineraryTitle('My Itinerary');
+      }
+      sessionStorage.setItem('currentUserId', user.id);
+    } else {
+      // User logged out, clear everything
+      setItineraryDays([]);
+      setCurrentItineraryId(null);
+      setCurrentItineraryTitle('My Itinerary');
+      sessionStorage.removeItem('currentUserId');
+    }
+  }, [user]);
 
   // Calculate derived destination, startDate, and endDate from itinerary days
   const [destination, setDestination] = useState<string>('');
@@ -172,6 +208,11 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
       return;
     }
     
+    // Only load from localStorage for unauthenticated users
+    if (user) {
+      return;
+    }
+    
     // Mark as loaded to prevent future runs
     hasLoadedFromStorage.current = true;
     
@@ -197,7 +238,63 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
       console.error('Error loading most recent itinerary:', error);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array to run only once on mount
+  }, [user]); // Include user in dependency array
+
+  // Load the user's most recent itinerary from Supabase when they log in
+  useEffect(() => {
+    // Only run for authenticated users
+    if (!user) {
+      return;
+    }
+    
+    // Skip if we've already loaded or if we have data
+    if (hasLoadedFromStorage.current || itineraryDays.length > 0 || currentItineraryId) {
+      return;
+    }
+    
+    // Mark as loaded to prevent future runs
+    hasLoadedFromStorage.current = true;
+    
+    const loadUserMostRecentItinerary = async () => {
+      try {
+        console.log('Loading most recent itinerary for authenticated user:', user.id);
+        
+        // Get all user itineraries and find the most recent one
+        const itineraries = await databaseService.getUserItineraries(user.id);
+        
+        if (itineraries.length > 0) {
+          // Sort by updated_at to get the most recent
+          const sortedItineraries = itineraries.sort((a: any, b: any) => 
+            new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime()
+          );
+          
+          const mostRecentItinerary = sortedItineraries[0];
+          
+          console.log('Found most recent itinerary for user, loading:', mostRecentItinerary.name);
+          
+          // Set the data in our state
+          setItineraryDays(mostRecentItinerary.days || []);
+          setCurrentItineraryId(mostRecentItinerary.id);
+          setCurrentItineraryTitle(mostRecentItinerary.name || 'My Itinerary');
+          
+          // Also update session storage
+          setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, mostRecentItinerary.days || []);
+          setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, mostRecentItinerary.id);
+          setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, mostRecentItinerary.name || 'My Itinerary');
+          
+          // Force UI refresh after loading
+          setTimeout(() => forceRefresh(), 100);
+        } else {
+          console.log('No saved itineraries found for user');
+        }
+      } catch (error) {
+        console.error('Error loading user most recent itinerary:', error);
+      }
+    };
+    
+    loadUserMostRecentItinerary();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]); // Run when user changes (login/logout)
 
   // Memoize sorted itinerary days to prevent recalculations
   const sortedItineraryDays = useMemo(() => {

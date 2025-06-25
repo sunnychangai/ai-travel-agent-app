@@ -179,7 +179,8 @@ export default function TravelPlannerLayout({
     return (
       <div className={cn("flex flex-col h-full", className)}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
-          <div className="flex-1 overflow-hidden">
+          {/* Tab content area - accounts for fixed bottom tabs */}
+          <div className="flex-1 overflow-hidden pb-16">
             <TabsContent value="chat" className="h-full m-0 p-0">
               <ChatAgent 
                 onDestinationDetected={(destination) => {
@@ -208,8 +209,8 @@ export default function TravelPlannerLayout({
             </TabsContent>
           </div>
           
-          {/* Bottom tab navigation */}
-          <div className="border-t bg-white">
+          {/* Fixed bottom tab navigation */}
+          <div className="fixed bottom-0 left-0 right-0 border-t bg-white z-50">
             <TabsList className="grid w-full grid-cols-2 h-16 bg-white rounded-none">
               <TabsTrigger 
                 value="chat" 
