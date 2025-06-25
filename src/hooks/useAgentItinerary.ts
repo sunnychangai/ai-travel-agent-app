@@ -1,488 +1,874 @@
-import { useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { enhancedOpenAIService } from '../services/enhancedOpenAIService';
 import { useItinerary } from '../contexts/ItineraryContext';
-import { Activity, ItineraryDay } from '../types';
-import React from 'react';
-import { useEnhancedOpenAI } from './useEnhancedOpenAI';
-import { UserPreferences } from '../components/TravelPlanner/EnhancedItineraryCreator';
+import { useAuth } from '../contexts/AuthContext';
+import { useUserPreferences } from '../hooks/useUserPreferences';
+import { useUserPreferences as useContextPreferences } from '../contexts/UserPreferencesContext';
+import { convertItineraryApiToContext, generateItineraryTitle } from '../utils/itineraryUtils';
+import { extractJsonFromText, safeJsonParse } from '../utils/jsonUtils';
+import UserPreferencesService from '../services/userPreferencesService';
+import { supabase } from '../lib/supabase';
+
+type AgentItineraryResult = {
+  success: boolean;
+  message: string;
+  data?: any;
+};
+
+type UseAgentItineraryState = {
+  isGenerating: boolean;
+  isUpdating: boolean;
+  lastAction: 'none' | 'generate' | 'update';
+  error: string | null;
+};
+
+type UseAgentItineraryActions = {
+  generateItinerary: (
+    destination: string,
+    startDate: string | Date,
+    endDate: string | Date,
+    preferencesOverride?: any
+  ) => Promise<AgentItineraryResult>;
+  updateItinerary: (
+    userInput: string
+  ) => Promise<AgentItineraryResult>;
+  detectItineraryRequest: (
+    userInput: string
+  ) => Promise<{
+    isItineraryRequest: boolean;
+    extractedParams: any;
+    isPreviousItineraryRequest: boolean;
+  }>;
+  detectUpdateRequest: (
+    userInput: string
+  ) => Promise<{
+    isUpdateRequest: boolean;
+    requestType: 'change_time' | 'add_activity' | 'remove_activity' | 'unknown';
+    details: any;
+  }>;
+  shouldConfirmReplacement: (
+    destination: string,
+    startDate: string | Date,
+    endDate: string | Date
+  ) => boolean;
+  updateUserPreferencesFromConversation: (
+    userInput: string
+  ) => Promise<void>;
+  hasPreviousItinerary: () => boolean;
+  restorePreviousItinerary: () => boolean;
+  createEnhancedItinerary: (
+    destination: string,
+    startDate: string | Date,
+    endDate: string | Date,
+    interests: Array<{id: string; label: string}>,
+    preferences: any
+  ) => Promise<AgentItineraryResult>;
+  cancelItineraryCreation: () => void;
+  itineraryCreationStatus: 'idle' | 'loading' | 'starting' | 'success' | 'error';
+  itineraryCreationProgress: number;
+  itineraryCreationStep: string;
+};
 
 /**
- * Custom hook to handle itinerary updates from the agent
- * This hook provides methods for the OpenAI agent to update the itinerary
+ * Hook for handling AI-powered itinerary generation and management
  */
-export function useAgentItinerary() {
-  const {
-    itineraryDays,
-    addActivity,
-    updateActivity,
-    deleteActivity,
-    addDay,
-    deleteDay,
+export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryActions {
+  const { user } = useAuth();
+  const { 
+    itineraryDays, 
+    addDay, 
+    updateActivity, 
+    deleteActivity, 
+    clearSessionStorage, 
+    clearItineraryDays,
     saveItinerary,
+    savePreviousItinerary,
+    restorePreviousItinerary,
+    hasPreviousItinerary,
+    forceRefresh
   } = useItinerary();
+  const { preferences: enhancedPreferences, updatePreferences } = useUserPreferences();
+  const { preferences: contextPreferences } = useContextPreferences();
+  const requestManager = useRef(new AbortController());
+  
+  const [state, setState] = useState<UseAgentItineraryState>({
+    isGenerating: false,
+    isUpdating: false,
+    lastAction: 'none',
+    error: null,
+  });
 
-  // Track if we're currently creating an itinerary to prevent duplicate operations
-  const isCreatingItinerary = React.useRef(false);
-
-  // Add the enhanced OpenAI service
-  const enhancedOpenAI = useEnhancedOpenAI();
-
-  /**
-   * Get a default image based on activity type
-   */
-  const getDefaultImage = (type: string) => {
-    switch (type?.toLowerCase()) {
-      case 'transportation':
-        return 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=600&q=80';
-      case 'accommodation':
-        return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&q=80';
-      case 'food':
-        return 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=80';
-      case 'activity':
-        return 'https://images.unsplash.com/photo-1526976668912-1a811878dd37?w=600&q=80';
-      default:
-        return 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&q=80';
-    }
-  };
-
-  /**
-   * Create a mock itinerary for first-time users
-   * @param destination The destination for the trip
-   * @param startDate Start date in ISO format
-   * @param endDate End date in ISO format
-   * @param activities Array of activities to add to the itinerary
-   */
-  const createMockItinerary = useCallback(
-    async (destination: string, startDate: string, endDate: string, activities: Activity[]) => {
-      try {
-        console.log('Starting itinerary creation for', destination, 'with', activities.length, 'activities');
+  // Add state for itinerary creation progress
+  const [itineraryCreationStatus, setItineraryCreationStatus] = useState<'idle' | 'loading' | 'starting' | 'success' | 'error'>('idle');
+  const [itineraryCreationProgress, setItineraryCreationProgress] = useState(0);
+  const [itineraryCreationStep, setItineraryCreationStep] = useState('');
+  
+  // Clean up request on unmount
+  useEffect(() => {
+    return () => {
+      requestManager.current.abort();
+    };
+  }, []);
+  
+  // Helper function to convert onboarding preferences to enhanced format
+  const convertOnboardingToEnhanced = useCallback((onboardingPrefs: any) => {
+    if (!onboardingPrefs) return null;
+    
+    return {
+      travelStyle: onboardingPrefs.travel_style?.[0] || onboardingPrefs.travelStyle || 'cultural',
+      interests: (onboardingPrefs.activities || onboardingPrefs.interests || []).map((item: string) => ({
+        id: item.toLowerCase().replace(/\s+/g, ''),
+        label: item
+      })),
+      travelGroup: 'couple', // Default since onboarding doesn't capture this
+      budget: onboardingPrefs.budget || 'mid-range',
+      transportMode: 'walking', // Default since onboarding doesn't capture this
+      dietaryPreferences: (onboardingPrefs.preferences || onboardingPrefs.dietary_restrictions || []).map((item: string) => ({
+        id: item.toLowerCase().replace(/\s+/g, ''),
+        label: item
+      })),
+      pace: 'moderate' as const, // Default since onboarding doesn't capture this
+      lastUpdated: Date.now()
+    };
+  }, []);
+  
+  // Load and merge preferences from both systems
+  const loadMergedPreferences = useCallback(async () => {
+    try {
+      if (!user) return null;
+      
+      // Load from both systems in parallel
+      const [enhancedPrefs, onboardingPrefs] = await Promise.all([
+        UserPreferencesService.loadPreferences(),
+        supabase
+          .from('user_preferences')
+          .select('*')
+          .eq('user_id', user.id)
+          .single()
+          .then(({ data, error }) => error ? null : data)
+      ]);
+      
+      // If we have onboarding preferences but no enhanced preferences, convert and save
+      if (onboardingPrefs && !enhancedPrefs) {
+        const convertedPrefs = convertOnboardingToEnhanced(onboardingPrefs);
+        if (convertedPrefs) {
+          await UserPreferencesService.savePreferences(convertedPrefs);
+          return convertedPrefs;
+        }
+      }
+      
+      // If we have enhanced preferences but they're older than onboarding preferences, update them
+      if (enhancedPrefs && onboardingPrefs) {
+        const onboardingUpdated = onboardingPrefs.updated_at && typeof onboardingPrefs.updated_at === 'string' 
+          ? new Date(onboardingPrefs.updated_at).getTime() 
+          : 0;
+        const enhancedUpdated = enhancedPrefs.lastUpdated || 0;
         
-        // Clear existing days
-        const existingDays = [...itineraryDays];
-        existingDays.forEach((day) => {
-          deleteDay(day.dayNumber);
-        });
-
-        if (!startDate || !endDate) {
-          console.error('Start and end dates are required');
-          return { success: false, message: 'Start and end dates are required' };
-        }
-
-        // Validate date formats
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-          console.error('Invalid date format. Expected YYYY-MM-DD but got:', { startDate, endDate });
-          return { success: false, message: 'Invalid date format. Dates should be in YYYY-MM-DD format.' };
-        }
-
-        // Calculate the number of days
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        
-        // Check if dates are valid
-        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-          console.error('Invalid date values:', { startDate, endDate, startTime: start.getTime(), endTime: end.getTime() });
-          return { success: false, message: 'Invalid date values. Please check your dates.' };
-        }
-        
-        const dayCount = Math.ceil(
-          (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-        ) + 1;
-        
-        console.log('Calculated day count:', dayCount, 'for date range:', startDate, 'to', endDate);
-        
-        if (dayCount <= 0) {
-          console.error('Invalid date range - end date is before start date');
-          return { success: false, message: 'End date must be after start date' };
-        }
-
-        // Get all dates between start and end
-        const dates: string[] = [];
-        for (let i = 0; i < dayCount; i++) {
-          const date = new Date(start);
-          date.setDate(start.getDate() + i);
-          dates.push(date.toISOString().split('T')[0]);
-        }
-
-        // Validate activities array
-        if (!Array.isArray(activities)) {
-          console.error('Activities is not an array:', activities);
-          return { success: false, message: 'Activities must be an array' };
-        }
-        
-        if (activities.length === 0) {
-          console.warn('No activities provided, creating default activities');
-        }
-
-        // Add days to itinerary
-        console.log('Adding days to itinerary:', dates);
-        dates.forEach((date) => {
-          addDay(date);
-        });
-
-        // Group activities by day
-        interface DayActivities {
-          [key: number]: Activity[];
-        }
-        
-        try {
-          const activitiesByDay: DayActivities = {};
-
-          // Process and distribute activities
-          activities.forEach((activity, index) => {
-            try {
-              if (!activity || typeof activity !== 'object') {
-                console.error(`Invalid activity at index ${index}:`, activity);
-                return;
-              }
-              
-              // If activity has an invalid day number, assign it to a valid day
-              let dayNumber = activity.dayNumber;
-              
-              // Ensure day number is within range
-              if (typeof dayNumber !== 'number' || isNaN(dayNumber) || dayNumber < 1 || dayNumber > dayCount) {
-                // Use a deterministic algorithm to distribute activities evenly
-                dayNumber = (index % dayCount) + 1;
-                console.log(`Reassigning activity "${activity.title}" from day ${activity.dayNumber || 'undefined'} to day ${dayNumber}`);
-              }
-              
-              if (!activitiesByDay[dayNumber]) {
-                activitiesByDay[dayNumber] = [];
-              }
-              
-              // Create a copy with the potentially corrected day number
-              const activityWithCorrectDay = {
-                ...activity,
-                dayNumber
-              };
-              
-              activitiesByDay[dayNumber].push(activityWithCorrectDay);
-            } catch (activityError) {
-              console.error(`Error processing activity at index ${index}:`, activityError, activity);
-            }
-          });
-
-          // Fix the Object.keys calls to use proper typing
-          (Object.keys(activitiesByDay) as unknown as string[]).forEach(day => {
-            const dayNum = parseInt(day);
-            console.log(`Day ${day} has ${activitiesByDay[dayNum].length} activities`);
-          });
-
-          // Ensure all days have at least some activities
-          for (let i = 1; i <= dayCount; i++) {
-            if (!activitiesByDay[i] || activitiesByDay[i].length === 0) {
-              console.log(`Day ${i} has no activities, attempting to redistribute`);
-              
-              // Find a day with the most activities
-              let maxActivitiesDay = 0;
-              let maxActivities = 0;
-              
-              (Object.keys(activitiesByDay) as unknown as string[]).forEach(day => {
-                const dayNum = parseInt(day);
-                if (activitiesByDay[dayNum] && activitiesByDay[dayNum].length > maxActivities) {
-                  maxActivities = activitiesByDay[dayNum].length;
-                  maxActivitiesDay = dayNum;
-                }
-              });
-              
-              // If we found a day with activities, move some to the empty day
-              if (maxActivitiesDay > 0 && maxActivities > 1) {
-                const activitiesToMove = Math.ceil(maxActivities / 3); // Move about 1/3 of activities
-                const movedActivities = activitiesByDay[maxActivitiesDay].splice(0, activitiesToMove);
-                
-                // Update the day number for moved activities
-                movedActivities.forEach(activity => {
-                  activity.dayNumber = i;
-                });
-                
-                activitiesByDay[i] = movedActivities;
-                console.log(`Moved ${movedActivities.length} activities from day ${maxActivitiesDay} to day ${i}`);
-              } else {
-                // Create a default activity if we couldn't move any
-                activitiesByDay[i] = [{
-                  title: `Explore ${destination} - Day ${i}`,
-                  description: `Spend the day exploring the highlights of ${destination} at your own pace.`,
-                  location: `${destination} City Center`,
-                  time: "10:00 AM",
-                  type: "Activity",
-                  dayNumber: i,
-                  id: `default-activity-day-${i}`
-                }];
-                console.log(`Created default activity for day ${i}`);
-              }
-            }
+        if (onboardingUpdated > enhancedUpdated) {
+          const convertedPrefs = convertOnboardingToEnhanced(onboardingPrefs);
+          if (convertedPrefs) {
+            // Merge with existing enhanced preferences to preserve fields not in onboarding
+            const mergedPrefs = {
+              ...enhancedPrefs,
+              ...convertedPrefs,
+              lastUpdated: Date.now()
+            };
+            await UserPreferencesService.savePreferences(mergedPrefs);
+            return mergedPrefs;
           }
-
-          // Sort activities by time within each day
-          Object.keys(activitiesByDay).forEach(dayNumber => {
-            try {
-              activitiesByDay[Number(dayNumber)].sort((a, b) => {
-                // Extract hours and minutes from time strings
-                const getTimeValue = (timeStr: string) => {
-                  try {
-                    if (!timeStr) return 0;  // Default to earliest time if missing
-                    
-                    const timePart = timeStr.split(' - ')[0]; // Get start time if range
-                    const timeMatch = timePart.match(/(\d+):(\d+)\s*(am|pm)?/i);
-                    
-                    if (!timeMatch) return 0;
-                    
-                    let hour = parseInt(timeMatch[1]);
-                    const minute = parseInt(timeMatch[2]);
-                    const period = timeMatch[3]?.toLowerCase();
-                    
-                    // Convert to 24-hour format if needed
-                    if (period === 'pm' && hour < 12) {
-                      hour += 12;
-                    }
-                    if (period === 'am' && hour === 12) {
-                      hour = 0;
-                    }
-                    
-                    return hour * 60 + minute;
-                  } catch (timeError) {
-                    console.error('Error parsing time:', timeStr, timeError);
-                    return 0;
-                  }
-                };
-                
-                return getTimeValue(a.time) - getTimeValue(b.time);
-              });
-            } catch (sortError) {
-              console.error(`Error sorting activities for day ${dayNumber}:`, sortError);
-            }
-          });
-
-          // Add activities in order
-          console.log('Adding activities by day:', Object.keys(activitiesByDay).length);
-          
-          // Create a mapping from day numbers to dates for easier lookup
-          const dayNumberToDate = {};
-          dates.forEach((date, index) => {
-            dayNumberToDate[index + 1] = date;
-          });
-          
-          // Add activities for each date/day
-          dates.forEach((date, dateIndex) => {
-            try {
-              // Day numbers are 1-indexed
-              const dayNumber = dateIndex + 1;
-              const dayActivities = activitiesByDay[dayNumber] || [];
-              
-              console.log(`Adding ${dayActivities.length} activities to day ${dayNumber} (${date})`);
-              
-              dayActivities.forEach((activity, index) => {
-                try {
-                  console.log(`Adding activity ${index+1}:`, activity.title, 'to day', dayNumber);
-                  
-                  // Ensure activity has all required fields
-                  const enhancedActivity = {
-                    title: activity.title || `Activity ${index+1}`,
-                    description: activity.description || '',
-                    location: activity.location || '',
-                    time: activity.time || '',
-                    type: activity.type || 'Activity',
-                    imageUrl: activity.imageUrl || getDefaultImage(activity.type)
-                  };
-                  
-                  addActivity(dayNumber, enhancedActivity);
-                } catch (activityError) {
-                  console.error(`Error adding activity ${index} to day ${dayNumber}:`, activityError, activity);
-                }
-              });
-            } catch (dateError) {
-              console.error(`Error processing activities for date ${date}:`, dateError);
-            }
-          });
-
-          // Save the itinerary
-          console.log('Saving itinerary for destination:', destination);
-          
-          // Ensure we never save a null or empty destination name to prevent database constraints violation
-          const safeDestinationName = destination || "Your Trip";
-          saveItinerary(safeDestinationName);
-
-          return { success: true, message: `Created a new itinerary for ${safeDestinationName}` };
-        } catch (processingError) {
-          console.error('Error processing activities:', processingError);
-          return { success: false, message: `Error processing activities: ${processingError.message}` };
         }
-      } catch (error) {
-        console.error('Error in createMockItinerary:', error);
-        return { success: false, message: `Error creating itinerary: ${error.message}` };
       }
-    },
-    [itineraryDays, addDay, addActivity, deleteDay, saveItinerary]
-  );
-
-  /**
-   * Add a new activity to the itinerary
-   */
-  const addItineraryActivity = useCallback(
-    (
-      dayNumber: number,
-      activity: {
-        title: string;
-        description: string;
-        location: string;
-        time: string;
-        type: string;
-        imageUrl?: string;
+      
+      // Return enhanced preferences if available, otherwise convert onboarding preferences
+      return enhancedPrefs || convertOnboardingToEnhanced(onboardingPrefs);
+    } catch (error) {
+      console.error('Error loading merged preferences:', error);
+      return enhancedPreferences; // Fallback to current enhanced preferences
+    }
+  }, [user, enhancedPreferences, convertOnboardingToEnhanced]);
+  
+  // Memoize enhanced preferences by combining user preferences with overrides
+  const getEnhancedPreferences = useCallback(async (preferencesOverride?: any) => {
+    // Load the most up-to-date preferences
+    const mergedPreferences = await loadMergedPreferences();
+    
+    return {
+      ...(mergedPreferences || enhancedPreferences || {}),
+      ...(preferencesOverride || {})
+    };
+  }, [enhancedPreferences, loadMergedPreferences]);
+  
+  // Memoize the current itinerary in API format for updates
+  const currentItineraryForApi = useMemo(() => {
+    if (!itineraryDays || itineraryDays.length === 0) {
+      return null;
+    }
+    
+    // Get the original destination to compare later
+    const originalDestination = itineraryDays[0]?.activities[0]?.location?.split(',')[0] || 'Unknown';
+    
+    // Try to extract city name if it's a full address
+    let cleanOriginalDestination = originalDestination;
+    if (originalDestination.includes(',')) {
+      const parts = originalDestination.split(',');
+      if (parts.length >= 2) {
+        cleanOriginalDestination = parts[1].trim();
       }
-    ) => {
-      addActivity(dayNumber, {
-        ...activity,
-        imageUrl: activity.imageUrl || getDefaultImage(activity.type)
-      });
-
-      return {
-        success: true,
-        message: `Added ${activity.title} to day ${dayNumber}`
-      };
-    },
-    [addActivity]
-  );
-
-  /**
-   * Get the current itinerary
-   */
-  const getCurrentItinerary = useCallback(() => {
-    return itineraryDays;
+    }
+    
+    // Convert current itinerary to the format expected by the API
+    return {
+      destination: cleanOriginalDestination,
+      startDate: itineraryDays[0]?.date,
+      endDate: itineraryDays[itineraryDays.length - 1]?.date,
+      itinerary: itineraryDays.map(day => ({
+        day: `Day ${day.dayNumber}: ${day.date}`,
+        activities: day.activities.map(activity => ({
+          time: activity.time,
+          type: activity.type || 'activity',
+          name: activity.title,
+          address: activity.location,
+          description: activity.description,
+        }))
+      }))
+    };
   }, [itineraryDays]);
 
-  /**
-   * Create an itinerary automatically using enhanced OpenAI features
-   */
-  const createEnhancedItinerary = useCallback(
-    async (
-      destination: string,
-      startDate: string,
-      endDate: string,
-      interests: string[] | Array<{id: string; label: string}>,
-      preferences: {
-        travelStyle: string;
-        travelGroup: string;
-        budget: string;
-        transportMode: string;
-        dietaryPreferences: string[] | Array<{id: string; label: string}>;
-        pace: 'slow' | 'moderate' | 'fast';
-      },
-      onProgress?: (progress: number, step: string) => void
-    ) => {
-      console.log('Creating enhanced itinerary for:', destination);
-      
-      // Prevent multiple simultaneous calls
-      if (isCreatingItinerary.current) {
-        console.log('Already creating an itinerary, skipping duplicate call');
-        return { success: false, message: 'Itinerary creation already in progress' };
-      }
-      
-      isCreatingItinerary.current = true;
+  // Helper function to update progress
+  const updateProgress = useCallback((progress: number, step: string) => {
+    // Use requestAnimationFrame for smoother updates
+    requestAnimationFrame(() => {
+      setItineraryCreationProgress(progress);
+      setItineraryCreationStep(step);
+    });
+  }, []);
+  
+  // Cancel itinerary creation
+  const cancelItineraryCreation = useCallback(() => {
+    requestManager.current.abort();
+    requestManager.current = new AbortController();
+    setItineraryCreationStatus('idle');
+    setItineraryCreationProgress(0);
+    setItineraryCreationStep('');
+  }, []);
 
+  // Enhanced itinerary creation with smooth progress updates
+  const createEnhancedItinerary = useCallback(async (
+    destination: string,
+    startDate: string | Date,
+    endDate: string | Date,
+    interests: Array<{id: string; label: string}>,
+    preferences: any
+  ): Promise<AgentItineraryResult> => {
+    try {
+      // Reset state and show loading
+      setItineraryCreationStatus('loading');
+      setItineraryCreationProgress(0);
+      setItineraryCreationStep('Preparing your itinerary...');
+      
+      // Abort any previous requests
+      requestManager.current.abort();
+      requestManager.current = new AbortController();
+      
+      // Simulate initial progress with smoother transitions
+      await new Promise(resolve => setTimeout(resolve, 300));
+      updateProgress(5, 'Analyzing your destination...');
+      
+      await new Promise(resolve => setTimeout(resolve, 500));
+      updateProgress(15, 'Finding the best attractions for you...');
+      
+      // Start the actual generation process
+      const enhancedPreferences = {
+        ...preferences,
+        interests: interests.map(i => i.label),
+        ...preferences
+      };
+      
+      // Create a custom handler for progress updates
+      const handleProgress = (progress: number, message: string) => {
+        updateProgress(progress, message);
+      };
+      
+      // Simulate more progress before API call
+      await new Promise(resolve => setTimeout(resolve, 400));
+      updateProgress(25, 'Creating your personalized itinerary...');
+      
+      // Call the API with progress updates
+      let result;
       try {
-        // Process interests to ensure we have strings for the API
-        const interestLabels = Array.isArray(interests) 
-          ? interests.map(interest => typeof interest === 'string' ? interest : interest.label)
-          : [];
-
-        // Process dietary preferences to ensure we have strings for the API
-        const dietaryLabels = Array.isArray(preferences.dietaryPreferences)
-          ? preferences.dietaryPreferences.map(pref => 
-              typeof pref === 'string' ? pref : pref.label
-            )
-          : [];
-
-        // Clear existing days if any
-        console.log('Clearing existing days:', itineraryDays.length);
-        const existingDays = [...itineraryDays];
-        existingDays.forEach((day) => {
-          console.log(`Deleting day ${day.dayNumber}`);
-          deleteDay(day.dayNumber);
-        });
-        
-        // Generate enhanced itinerary with OpenAI
-        const enhancedItinerary = await enhancedOpenAI.generateItinerary({
+        result = await enhancedOpenAIService.generateItinerary(
           destination,
           startDate,
           endDate,
-          interests: interestLabels,
-          preferences: {
-            travelStyle: preferences.travelStyle,
-            travelGroup: preferences.travelGroup,
-            budget: preferences.budget,
-            transportMode: preferences.transportMode,
-            dietaryPreferences: dietaryLabels,
-            pace: preferences.pace,
+          {
+            ...enhancedPreferences,
+            onProgress: handleProgress
           },
-          onProgress,
-        });
-        
-        if (!enhancedItinerary) {
-          // Request was likely canceled
-          isCreatingItinerary.current = false;
-          return { success: false, message: 'Itinerary generation was canceled' };
-        }
-        
-        // Process the days from the OpenAI response
-        for (const day of enhancedItinerary.days) {
-          // Add the day
-          addDay(day.date);
-          
-          // Add all activities for this day
-          for (const activity of day.activities) {
-            // Create an activity with the required structure
-            const newActivity = {
-              title: activity.title,
-              description: activity.description || '',
-              location: activity.location || '',
-              time: activity.time || '12:00 PM',
-              type: activity.category || 'Activity',
-              imageUrl: activity.imageUrl || getDefaultImage(activity.category),
-              notes: activity.notes || '',
-              // Add any new fields from the enhanced service
-              subcategory: activity.subcategory || '',
-              duration: activity.duration || '',
-              price: activity.price || '',
-            };
-            
-            console.log(`Adding activity to day ${day.dayNumber}:`, newActivity.title);
-            addActivity(day.dayNumber, newActivity);
+          { 
+            signal: requestManager.current.signal
           }
+        );
+        
+        if (!result) {
+          throw new Error('Failed to generate itinerary - no data returned');
         }
-        
-        // Save the itinerary with destination as name
-        saveItinerary(destination);
-        
-        // Success!
-        console.log('Successfully created enhanced itinerary');
-        isCreatingItinerary.current = false;
-        return { success: true, message: 'Itinerary created successfully' };
-      } catch (error) {
-        console.error('Error creating enhanced itinerary:', error);
-        isCreatingItinerary.current = false;
-        return { success: false, message: `Error: ${error.message}` };
+      } catch (error: any) {
+        // Handle abort errors gracefully
+        if (error && (error.name === 'AbortError' || (error.message && (error as Error).message.includes('abort')))) {
+          console.log('Itinerary generation was aborted');
+          setItineraryCreationStatus('idle');
+          return {
+            success: false,
+            message: 'Itinerary generation was canceled',
+          };
+        }
+        throw error; // Re-throw other errors
       }
-    },
-    [itineraryDays, addDay, deleteDay, addActivity, enhancedOpenAI, saveItinerary]
-  );
+      
+      // Save the current itinerary before clearing it
+      if (itineraryDays.length > 0) {
+        savePreviousItinerary();
+      }
+      
+      // Clear session storage but don't clear state yet
+      clearSessionStorage();
+      
+      // Make sure to completely clear existing days to prevent accumulation
+      clearItineraryDays();
+      
+      // Small delay to ensure clearing is complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Convert and add the new itinerary
+      updateProgress(85, 'Finalizing your itinerary...');
+      
+      const { days: formattedDays, title } = convertItineraryApiToContext(result);
+      
+      // Check if we have valid days to add
+      if (!formattedDays || formattedDays.length === 0) {
+        throw new Error('No itinerary days were generated');
+      }
+      
+      // Sort days by day number
+      const sortedDays = [...formattedDays].sort((a, b) => a.dayNumber - b.dayNumber);
+      
+      // First set our local state
+      setState(prev => ({
+        ...prev,
+        lastAction: 'generate',
+      }));
+      
+      // Wait a moment to ensure the state is updated
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Now add each day to the context
+      console.log(`[useAgentItinerary] Adding ${sortedDays.length} new days to itinerary`);
+      
+      // Add days one by one to ensure they get created properly
+      let daysAdded = 0;
+      for (const day of sortedDays) {
+        console.log(`[useAgentItinerary] Adding day ${day.dayNumber} to itinerary`);
+        addDay(day);
+        daysAdded++;
+        
+        // Small delay between adding days to prevent UI stuttering
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      
+      console.log(`[useAgentItinerary] Added ${daysAdded} days to itinerary`);
+      
+      // Force a refresh after adding all days to ensure UI updates
+      console.log('[useAgentItinerary] Initial refresh after adding days');
+      forceRefresh();
+      
+      // Auto-save the itinerary only if we have days
+      let itineraryId = null;
+      updateProgress(95, 'Saving your itinerary...');
+      
+      // Wait a moment to ensure all days are properly added before saving
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      if (sortedDays.length > 0) {
+        try {
+          console.log('[useAgentItinerary] Saving itinerary with title:', title);
+          itineraryId = await saveItinerary(title);
+          console.log(`[useAgentItinerary] Automatically saved itinerary with title: "${title}", ID: ${itineraryId}`);
+        } catch (saveError) {
+          console.error('Failed to save itinerary:', saveError);
+          // Continue without failing the whole process
+        }
+      }
+      
+      // Complete
+      updateProgress(100, 'Your itinerary is ready!');
+      setItineraryCreationStatus('success');
+      
+      // Ensure all components receive the updated itinerary
+      // Force a UI refresh by updating the state after a short delay
+      setTimeout(() => {
+        // This will trigger a re-render in components using this hook
+        setState(prev => ({ 
+          ...prev,
+          lastAction: 'generate',
+          isGenerating: false,
+          error: null
+        }));
+        
+        // No need for additional refresh calls here - one is enough
+      }, 100);
+      
+      // Return success
+      return {
+        success: true,
+        message: 'Successfully created itinerary',
+        data: {
+          ...result,
+          title
+        },
+      };
+    } catch (error: any) {
+      console.error('Error creating enhanced itinerary:', error);
+      
+      // Handle abort
+      if (error.name === 'AbortError') {
+        setItineraryCreationStatus('idle');
+        return {
+          success: false,
+          message: 'Itinerary creation canceled',
+        };
+      }
+      
+      // Handle other errors
+      setItineraryCreationStatus('error');
+      setItineraryCreationStep((error as Error).message || 'Failed to create itinerary');
+      
+      return {
+        success: false,
+        message: (error as Error).message || 'Failed to create itinerary',
+      };
+    }
+  }, [
+    enhancedPreferences,
+    itineraryDays,
+    addDay,
+    clearSessionStorage,
+    savePreviousItinerary,
+    saveItinerary,
+    updateProgress,
+    forceRefresh,
+    clearItineraryDays
+  ]);
   
   /**
-   * Cancel any ongoing itinerary creation
+   * Generate a complete itinerary based on user input
    */
-  const cancelItineraryCreation = useCallback(() => {
-    if (isCreatingItinerary.current) {
-      enhancedOpenAI.cancelRequests();
-      isCreatingItinerary.current = false;
+  const generateItinerary = useCallback(async (
+    destination: string,
+    startDate: string | Date,
+    endDate: string | Date,
+    preferencesOverride?: any
+  ): Promise<AgentItineraryResult> => {
+    try {
+      // Update state to indicate generation in progress
+      setState(prev => ({
+        ...prev,
+        isGenerating: true,
+        error: null,
+      }));
+      
+      // Abort any in-flight requests
+      requestManager.current.abort();
+      requestManager.current = new AbortController();
+      
+      // Use memoized enhanced preferences
+      const enhancedPreferencesResult = await getEnhancedPreferences(preferencesOverride);
+      
+      // Call the service to generate the itinerary
+      const itineraryData = await enhancedOpenAIService.generateItinerary(
+        destination,
+        startDate,
+        endDate,
+        enhancedPreferencesResult,
+        { signal: requestManager.current.signal }
+      );
+      
+      // Save the current itinerary before clearing it
+      if (itineraryDays.length > 0) {
+        savePreviousItinerary();
+      }
+      
+      // Clear existing itinerary - both session storage and state
+      clearSessionStorage();
+      
+      // First clear the existing days before adding new ones
+      // This is critical to prevent accumulation of days
+      clearItineraryDays();
+      
+      // Wait a small time to ensure clearing is complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Convert the API data format to the format expected by ItineraryContext
+      const { days: formattedDays, title } = convertItineraryApiToContext(itineraryData);
+      
+      // Sort days by day number to ensure proper order
+      const sortedDays = [...formattedDays].sort((a, b) => a.dayNumber - b.dayNumber);
+      
+      // Add each day to the context
+      sortedDays.forEach(day => {
+        addDay(day);
+      });
+      
+      // Auto-save the itinerary with the generated title
+      const itineraryId = await saveItinerary(title);
+      console.log(`Automatically saved itinerary with title: "${title}", ID: ${itineraryId}`);
+      
+      // Update state to indicate generation complete
+      setState(prev => ({
+        ...prev,
+        isGenerating: false,
+        lastAction: 'generate',
+        error: null,
+      }));
+      
+      return {
+        success: true,
+        message: 'Successfully generated itinerary',
+        data: {
+          ...itineraryData,
+          title
+        },
+      };
+    } catch (error: any) {
+      // Handle errors
+      if (error.name === 'AbortError') {
+        console.log('Itinerary generation aborted');
+        return {
+          success: false,
+          message: 'Generation aborted',
+        };
+      }
+      
+      console.error('Error generating itinerary:', error);
+      
+      setState(prev => ({
+        ...prev,
+        isGenerating: false,
+        error: error.message || 'Failed to generate itinerary',
+      }));
+      
+      return {
+        success: false,
+        message: error.message || 'Failed to generate itinerary',
+      };
     }
-  }, [enhancedOpenAI]);
+  }, [
+    enhancedPreferences, 
+    itineraryDays, 
+    addDay, 
+    clearSessionStorage, 
+    savePreviousItinerary, 
+    saveItinerary, 
+    getEnhancedPreferences,
+    clearItineraryDays
+  ]);
+  
+  /**
+   * Update an existing itinerary based on user input
+   */
+  const updateItinerary = useCallback(async (
+    userInput: string
+  ): Promise<AgentItineraryResult> => {
+    try {
+      // Make sure there's an itinerary to update
+      if (!itineraryDays || itineraryDays.length === 0) {
+        return {
+          success: false,
+          message: 'No itinerary to update. Please generate an itinerary first.'
+        };
+      }
+      
+      // Update state to indicate update in progress
+      setState(prev => ({
+        ...prev,
+        isUpdating: true,
+        error: null,
+      }));
+      
+      // Use memoized current itinerary in API format
+      const currentItinerary = currentItineraryForApi;
+      
+      if (!currentItinerary) {
+        throw new Error('Failed to prepare current itinerary for update');
+      }
+      
+      // Process the update
+      const updatedItinerary = await enhancedOpenAIService.processItineraryUpdate(
+        userInput,
+        currentItinerary
+      );
+      
+      // Save the current itinerary before clearing it
+      savePreviousItinerary();
 
-  return {
-    createMockItinerary,
-    addItineraryActivity,
-    getCurrentItinerary,
+      // Clear the existing itinerary - both storage and state
+      clearSessionStorage();
+      clearItineraryDays();
+
+      // Wait a small time to ensure clearing is complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Convert and add updated days
+      const { days: formattedDays, title, destination: newDestination } = convertItineraryApiToContext(updatedItinerary);
+      
+      // Sort days by day number to ensure proper order
+      const sortedDays = [...formattedDays].sort((a, b) => a.dayNumber - b.dayNumber);
+      
+      // Add each day to the context
+      sortedDays.forEach(day => {
+        addDay(day);
+      });
+      
+      // Only generate a new title if the destination has changed significantly
+      let finalTitle = title;
+      if (currentItinerary.destination !== newDestination) {
+        finalTitle = generateItineraryTitle(
+          newDestination, 
+          updatedItinerary.startDate, 
+          updatedItinerary.endDate
+        );
+      }
+      
+      // Auto-save the updated itinerary
+      const itineraryId = await saveItinerary(finalTitle);
+      console.log(`Automatically saved updated itinerary with title: "${finalTitle}", ID: ${itineraryId}`);
+      
+      // Update state to indicate update complete
+      setState(prev => ({
+        ...prev,
+        isUpdating: false,
+        lastAction: 'update',
+        error: null,
+      }));
+      
+      return {
+        success: true,
+        message: 'Successfully updated itinerary',
+        data: {
+          ...updatedItinerary,
+          title: finalTitle
+        },
+      };
+    } catch (error: any) {
+      console.error('Error updating itinerary:', error);
+      
+      setState(prev => ({
+        ...prev,
+        isUpdating: false,
+        error: error.message || 'Failed to update itinerary',
+      }));
+      
+      return {
+        success: false,
+        message: error.message || 'Failed to update itinerary',
+      };
+    }
+  }, [
     itineraryDays,
+    addDay,
+    clearSessionStorage,
+    savePreviousItinerary,
+    saveItinerary,
+    currentItineraryForApi,
+    clearItineraryDays
+  ]);
+  
+  /**
+   * Detect if a user message is requesting an itinerary generation
+   */
+  const detectItineraryRequest = useCallback(async (
+    userInput: string
+  ): Promise<{
+    isItineraryRequest: boolean;
+    extractedParams: any;
+    isPreviousItineraryRequest: boolean;
+  }> => {
+    try {
+      // Check if this is a request for the previous itinerary
+      const isPreviousItineraryRequest = /previous|last|restore|old|earlier|before|bring back|recover/i.test(userInput) &&
+        /itinerary|plan|trip|travel/i.test(userInput);
+      
+      // If it's a previous itinerary request and we have one, return immediately
+      if (isPreviousItineraryRequest && hasPreviousItinerary()) {
+        return {
+          isItineraryRequest: false,
+          extractedParams: {},
+          isPreviousItineraryRequest: true
+        };
+      }
+      
+      // Extract parameters using OpenAI
+      const extractedParams = await enhancedOpenAIService.extractItineraryParameters(userInput);
+      
+      // Determine if this is an itinerary request
+      // It's an itinerary request if it has a destination and either dates or duration
+      const isItineraryRequest = Boolean(
+        extractedParams.destination &&
+        (extractedParams.startDate || extractedParams.endDate || extractedParams.duration)
+      );
+      
+      return {
+        isItineraryRequest,
+        extractedParams,
+        isPreviousItineraryRequest: false
+      };
+    } catch (error) {
+      console.error('Error detecting itinerary request:', error);
+      return {
+        isItineraryRequest: false,
+        extractedParams: {},
+        isPreviousItineraryRequest: false
+      };
+    }
+  }, []);
+  
+  /**
+   * Detect if a user message is requesting an update to the itinerary
+   */
+  const detectUpdateRequest = useCallback(async (
+    userInput: string
+  ): Promise<{
+    isUpdateRequest: boolean;
+    requestType: 'change_time' | 'add_activity' | 'remove_activity' | 'unknown';
+    details: any;
+  }> => {
+    try {
+      // No itinerary to update
+      if (!itineraryDays || itineraryDays.length === 0) {
+        return {
+          isUpdateRequest: false,
+          requestType: 'unknown',
+          details: {},
+        };
+      }
+      
+      // Prepare a prompt to analyze the user request
+      const analyzePrompt = `
+Analyze this user request and determine if it's asking to update a travel itinerary:
+"${userInput}"
+
+Return a JSON object with:
+1. "isUpdateRequest": boolean - true if the request is about updating an itinerary
+2. "requestType": one of ["change_time", "add_activity", "remove_activity", "unknown"] 
+3. "details": an object with extracted details like:
+   - "day": the day mentioned (e.g., "Day 1", "Thursday", etc.)
+   - "activity": the activity mentioned (e.g., "dinner", "museum visit")
+   - "newTime": if changing time, the new time (e.g., "8:00 PM")
+   - "activityToAdd": if adding, details of the new activity
+   - "activityToRemove": if removing, which activity to remove
+`;
+
+      // Call OpenAI to analyze the request
+      const response = await enhancedOpenAIService.batchRequests([
+        {
+          prompt: analyzePrompt,
+          model: 'gpt-3.5-turbo-1106',
+          temperature: 0.3,
+          parseResponse: (text) => JSON.parse(text),
+        }
+      ]);
+      
+      const analysis = response[0];
+      
+      return {
+        isUpdateRequest: analysis.isUpdateRequest || false,
+        requestType: analysis.requestType || 'unknown',
+        details: analysis.details || {},
+      };
+    } catch (error) {
+      console.error('Error detecting update request:', error);
+      return {
+        isUpdateRequest: false,
+        requestType: 'unknown',
+        details: {},
+      };
+    }
+  }, [itineraryDays]);
+  
+  /**
+   * Determine if user should be asked to confirm replacing the current itinerary
+   */
+  const shouldConfirmReplacement = useCallback((
+    destination: string,
+    startDate: string | Date,
+    endDate: string | Date
+  ): boolean => {
+    // No existing itinerary, no need to confirm
+    if (!itineraryDays || itineraryDays.length === 0) {
+      return false;
+    }
+    
+    return true;
+  }, [itineraryDays]);
+  
+  /**
+   * Update user preferences based on conversation
+   */
+  const updateUserPreferencesFromConversation = useCallback(async (
+    userInput: string
+  ): Promise<void> => {
+    try {
+      if (!user) return;
+      
+      // Extract preferences from the user input
+      const extractedPreferences = await enhancedOpenAIService.extractUserPreferences(
+        userInput,
+        enhancedPreferences || {}
+      );
+      
+      // Only update if we extracted meaningful preferences
+      const hasExtracted = Object.keys(extractedPreferences).some(key => {
+        const value = extractedPreferences[key];
+        if (Array.isArray(value)) {
+          return value.length > 0;
+        }
+        return Boolean(value);
+      });
+      
+      if (hasExtracted) {
+        // Update preferences in context
+        updatePreferences(extractedPreferences);
+        
+        // Store inferred preferences for this user
+        UserPreferencesService.saveInferredPreferences(user.id, extractedPreferences);
+        
+        // Also update in database if significant changes
+        if (Object.keys(extractedPreferences).length > 2) {
+          await UserPreferencesService.updateFromConversationInferences(
+            user.id,
+            extractedPreferences
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error updating preferences from conversation:', error);
+      // Don't throw - this is a background enhancement
+    }
+  }, [user, enhancedPreferences, updatePreferences]);
+  
+  return {
+    ...state,
+    generateItinerary,
+    updateItinerary,
+    detectItineraryRequest,
+    detectUpdateRequest,
+    shouldConfirmReplacement,
+    updateUserPreferencesFromConversation,
+    hasPreviousItinerary,
+    restorePreviousItinerary,
     createEnhancedItinerary,
     cancelItineraryCreation,
-    itineraryCreationStatus: enhancedOpenAI.status,
-    itineraryCreationProgress: enhancedOpenAI.progress,
-    itineraryCreationStep: enhancedOpenAI.step,
+    itineraryCreationStatus,
+    itineraryCreationProgress,
+    itineraryCreationStep,
   };
-} 
+}

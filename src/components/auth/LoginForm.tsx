@@ -5,17 +5,17 @@ export const LoginForm: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { signIn, loading } = useAuth();
+  const { signIn, isLoading } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
-    try {
-      await signIn(email, password);
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign in');
+    const result = await signIn(email, password);
+    if (!result.success) {
+      setError(result.message);
     }
+    // If successful, the auth context will handle the state update
   };
 
   return (
@@ -57,10 +57,10 @@ export const LoginForm: React.FC = () => {
         
         <button
           type="submit"
-          disabled={loading}
+          disabled={isLoading}
           className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
         >
-          {loading ? 'Signing in...' : 'Sign In'}
+          {isLoading ? 'Signing in...' : 'Sign In'}
         </button>
       </form>
     </div>

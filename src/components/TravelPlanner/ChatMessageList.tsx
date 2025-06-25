@@ -30,7 +30,7 @@ const ChatMessage = memo(({ message, isFirstMessage }: { message: Message; isFir
   <div
     className={cn(
       "flex w-full items-start gap-3",
-      message.sender === "user" ? "justify-end pr-8" : "pl-1",
+      message.sender === "user" ? "justify-end pr-2" : "pl-1",
       isFirstMessage ? "pt-4" : ""
     )}
   >
@@ -65,7 +65,7 @@ const ChatMessage = memo(({ message, isFirstMessage }: { message: Message; isFir
     </div>
 
     {message.sender === "user" && (
-      <Avatar className="h-8 w-8 flex-shrink-0 mt-1 mr-2">
+      <Avatar className="h-8 w-8 flex-shrink-0 mt-1 mr-1">
         <AvatarImage
           src="https://api.dicebear.com/7.x/avataaars/svg?seed=user"
           alt="User"
@@ -120,41 +120,34 @@ function ChatMessageList({
   }, []);
 
   return (
-    <div className={cn("h-full w-full bg-white overflow-hidden", className)}>
-      <Virtuoso
-        className="h-full px-4 pr-10 overflow-x-hidden pt-3"
-        style={{ overflowX: 'hidden' }}
-        data={messages}
-        followOutput="auto"
-        initialTopMostItemIndex={messages.length - 1}
-        itemContent={(index, message) => (
-          <div className="py-2 w-full overflow-hidden">
+    <div className={cn("w-full bg-white", className)}>
+      <div className="px-2 pr-1">
+        {messages.map((message, index) => (
+          <div key={message.id} className="py-1 w-full overflow-hidden">
             <ChatMessage 
               message={message} 
               isFirstMessage={index === 0} 
             />
           </div>
-        )}
-        components={{
-          Header: () => <div className="h-2" />,
-          Footer: () => isLoading ? (
-            <div className="py-2 pl-1">
-              <div className="flex items-start gap-3">
-                <Avatar className="h-8 w-8 flex-shrink-0 mt-1">
-                  <AvatarImage
-                    src="https://api.dicebear.com/7.x/avataaars/svg?seed=travel-ai"
-                    alt="AI"
-                  />
-                  <AvatarFallback>AI</AvatarFallback>
-                </Avatar>
-                <div className="rounded-tl-md rounded-tr-2xl rounded-bl-2xl rounded-br-2xl p-3 bg-gray-200 min-w-[60px] min-h-[40px] flex items-center shadow-sm border border-gray-200">
-                  <TypingIndicator />
-                </div>
+        ))}
+        
+        {isLoading && (
+          <div className="py-0 pl-1">
+            <div className="flex items-start gap-3">
+              <Avatar className="h-8 w-8 flex-shrink-0 mt-1">
+                <AvatarImage
+                  src="https://api.dicebear.com/7.x/avataaars/svg?seed=travel-ai"
+                  alt="AI"
+                />
+                <AvatarFallback>AI</AvatarFallback>
+              </Avatar>
+              <div className="rounded-tl-md rounded-tr-2xl rounded-bl-2xl rounded-br-2xl p-2 bg-gray-200 min-w-[60px] min-h-[36px] flex items-center shadow-sm border border-gray-200">
+                <TypingIndicator />
               </div>
             </div>
-          ) : null
-        }}
-      />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

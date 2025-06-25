@@ -63,6 +63,7 @@
     "react-resizable-panels": "^2.0.19",
     "react-router": "^6.23.1",
     "react-router-dom": "^6.30.0",
+    "react-textarea-autosize": "^8.5.9",
     "react-virtuoso": "^4.12.5",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",

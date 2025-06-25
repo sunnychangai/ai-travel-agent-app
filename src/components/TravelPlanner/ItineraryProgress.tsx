@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 
 interface ItineraryProgressProps {
-  status: 'idle' | 'loading' | 'success' | 'error';
+  status: 'idle' | 'loading' | 'starting' | 'success' | 'error';
   progress: number;
   step: string;
   onCancel?: () => void;
@@ -58,7 +58,15 @@ const ItineraryProgress: React.FC<ItineraryProgressProps> = ({
               className="bg-blue-500 h-3 rounded-full"
               initial={{ width: 0 }}
               animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.5 }}
+              transition={{ 
+                duration: 0.8, 
+                ease: "easeInOut", 
+                type: "tween"
+              }}
+              style={{ 
+                willChange: "width", 
+                backfaceVisibility: "hidden"
+              }}
             />
           </div>
         )}

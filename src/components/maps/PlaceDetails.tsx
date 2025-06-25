@@ -109,7 +109,7 @@ export const PlaceDetails: React.FC<PlaceDetailsProps> = ({
               </div>
               {getPhotoUrls().length > 1 && (
                 <div className="grid grid-cols-4 gap-2 mt-2">
-                  {getPhotoUrls().slice(1).map((url, index) => {
+                  {getPhotoUrls().slice(1).map((url: string, index: number) => {
                     const realIndex = index + 1;
                     return (
                       <div key={index} className="h-20 overflow-hidden rounded-lg bg-gray-100 relative">

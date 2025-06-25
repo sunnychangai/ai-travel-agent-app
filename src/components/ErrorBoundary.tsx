@@ -1,11 +1,10 @@
 import React, { Component, ReactNode, ErrorInfo } from 'react';
 import { Button } from './ui/button';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
-  onError?: (error: Error, errorInfo: ErrorInfo) => void;
 }
 
 interface ErrorBoundaryState {
@@ -30,18 +29,6 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     // Log the error to an error reporting service
     console.error('Error caught by ErrorBoundary:', error, errorInfo);
-    
-    // Call the onError callback if provided
-    if (this.props.onError) {
-      this.props.onError(error, errorInfo);
-    }
-  }
-
-  handleReset = (): void => {
-    this.setState({
-      hasError: false,
-      error: null
-    });
   }
 
   render(): ReactNode {
@@ -53,18 +40,17 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
       // Default fallback UI
       return (
-        <div className="flex flex-col items-center justify-center min-h-[200px] p-6 bg-red-50 border border-red-200 rounded-lg text-center">
-          <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
-          <h2 className="text-xl font-semibold text-red-700 mb-2">Something went wrong</h2>
-          <p className="text-sm text-red-600 mb-4 max-w-md">
+        <div className="flex flex-col items-center justify-center p-6 bg-slate-50 border rounded-md min-h-[300px] text-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold text-red-600 mb-2">Something went wrong</h2>
+          <p className="text-slate-600 mb-4">
             {this.state.error?.message || 'An unexpected error occurred'}
           </p>
           <Button 
-            onClick={this.handleReset}
-            className="flex items-center gap-2 bg-red-600 hover:bg-red-700"
+            onClick={() => window.location.href = '/'}
+            variant="outline"
           >
-            <RefreshCw className="h-4 w-4" />
-            Try Again
+            Go to Home Page
           </Button>
         </div>
       );

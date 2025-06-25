@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { format, parse, isValid } from 'date-fns';
 import { ItineraryDay } from '../../types';
 import { cn } from '../../lib/utils';
+import { formatDate } from '../../utils/dateUtils';
 
 interface DaySelectorProps {
   days: { dayNumber: number; date: string }[];
@@ -18,30 +19,18 @@ const DaySelector: React.FC<DaySelectorProps> = ({
   onSelectDay,
   className
 }) => {
-  const currentDayNumber = parseInt(selectedDay);
+  const currentDayNumber = parseInt(selectedDay, 10);
   
   const handlePrevDay = () => {
-    const index = days.findIndex(day => day.dayNumber === currentDayNumber);
-    if (index > 0) {
-      onSelectDay(days[index - 1].dayNumber.toString());
+    if (currentDayNumber > 1) {
+      onSelectDay((currentDayNumber - 1).toString());
     }
   };
   
   const handleNextDay = () => {
-    const index = days.findIndex(day => day.dayNumber === currentDayNumber);
-    if (index < days.length - 1) {
-      onSelectDay(days[index + 1].dayNumber.toString());
+    if (currentDayNumber < days.length) {
+      onSelectDay((currentDayNumber + 1).toString());
     }
-  };
-  
-  const formatDate = (dateString: string) => {
-    try {
-      const date = parse(dateString, 'yyyy-MM-dd', new Date());
-      if (isValid(date)) {
-        return format(date, 'EEE, MMM d');
-      }
-    } catch (error) {}
-    return dateString;
   };
   
   const currentDay = days.find(day => day.dayNumber === currentDayNumber);
@@ -86,7 +75,7 @@ const DaySelector: React.FC<DaySelectorProps> = ({
                   DAY {currentDay?.dayNumber}
                 </span>
                 <span className="text-sm font-medium text-slate-800">
-                  {currentDay ? formatDate(currentDay.date) : 'Select day'}
+                  {currentDay ? formatDate(currentDay.date, 'dayAndDate') : 'Select day'}
                 </span>
               </div>
               <div className="ml-auto">

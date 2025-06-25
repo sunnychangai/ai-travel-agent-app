@@ -95,8 +95,24 @@ const EnhancedItineraryCreator: React.FC<EnhancedItineraryCreatorProps> = ({
 }) => {
   // Form state
   const [destination, setDestination] = useState(initialDestination);
-  const [startDate, setStartDate] = useState(initialStartDate || new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(initialEndDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  
+  // Use 2025 as the base year for all new itineraries
+  const getCurrentDateWithYear = () => {
+    const today = new Date();
+    const useYear = today.getFullYear() < 2025 ? 2025 : today.getFullYear();
+    return new Date(useYear, today.getMonth(), today.getDate()).toISOString().split('T')[0];
+  };
+  
+  // Get end date 7 days from the start date using same year logic
+  const getEndDateWithYear = () => {
+    const today = new Date();
+    const useYear = today.getFullYear() < 2025 ? 2025 : today.getFullYear();
+    const futureDate = new Date(useYear, today.getMonth(), today.getDate() + 7);
+    return futureDate.toISOString().split('T')[0];
+  };
+  
+  const [startDate, setStartDate] = useState(initialStartDate || getCurrentDateWithYear());
+  const [endDate, setEndDate] = useState(initialEndDate || getEndDateWithYear());
   const [travelStyle, setTravelStyle] = useState('cultural');
   const [selectedInterests, setSelectedInterests] = useState<string[]>(['history', 'food']);
   const [travelGroup, setTravelGroup] = useState('couple');
@@ -468,7 +484,7 @@ const EnhancedItineraryCreator: React.FC<EnhancedItineraryCreatorProps> = ({
           <Button 
             type="submit" 
             className="w-full bg-blue-500 hover:bg-blue-600 text-white"
-            disabled={itineraryCreationStatus === 'loading'}
+            disabled={itineraryCreationStatus === 'loading' || itineraryCreationStatus === 'starting'}
           >
             Create My Personalized Itinerary
           </Button>

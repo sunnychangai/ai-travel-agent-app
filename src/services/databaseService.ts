@@ -1,5 +1,16 @@
 import { supabase } from './supabase';
 import { Activity, ItineraryDay, SuggestionItem } from '../types';
+import { formatTimeRange } from '../utils/timeUtils';
+import { safeParseDate } from '../utils/dateUtils';
+
+// Check if Supabase is properly configured
+const isSupabaseConfigured = () => {
+  return Boolean(
+    import.meta.env.VITE_SUPABASE_URL && 
+    import.meta.env.VITE_SUPABASE_ANON_KEY &&
+    supabase
+  );
+};
 
 export const databaseService = {
   /**
@@ -7,6 +18,20 @@ export const databaseService = {
    */
   async getUserItineraries(userId: string) {
     try {
+      if (!isSupabaseConfigured()) {
+        console.warn('Supabase not configured. Falling back to localStorage.');
+        // Fallback to localStorage behavior
+        const storageKey = 'itineraries';
+        const savedItems = localStorage.getItem(storageKey);
+        
+        if (savedItems) {
+          const parsedItems = JSON.parse(savedItems);
+          // Filter by mock user - this is a fallback for demo purposes
+          return parsedItems.filter((item: any) => item.user_id === userId || !item.user_id);
+        }
+        return [];
+      }
+
       const { data, error } = await supabase
         .from('itineraries')
         .select('*')
@@ -17,7 +42,15 @@ export const databaseService = {
       return data || [];
     } catch (error) {
       console.error('Error fetching user itineraries:', error);
-      throw error;
+      // Fallback to localStorage on any error
+      const storageKey = 'itineraries';
+      const savedItems = localStorage.getItem(storageKey);
+      
+      if (savedItems) {
+        const parsedItems = JSON.parse(savedItems);
+        return parsedItems.filter((item: any) => item.user_id === userId || !item.user_id);
+      }
+      return [];
     }
   },
 
@@ -26,6 +59,23 @@ export const databaseService = {
    */
   async getItinerary(itineraryId: string) {
     try {
+      if (!isSupabaseConfigured()) {
+        console.warn('Supabase not configured. Falling back to localStorage.');
+        // Fallback to localStorage behavior
+        const storageKey = 'itineraries';
+        const savedItems = localStorage.getItem(storageKey);
+        
+        if (savedItems) {
+          const parsedItems = JSON.parse(savedItems);
+          const itinerary = parsedItems.find((item: any) => item.id === itineraryId);
+          if (!itinerary) {
+            throw new Error(`Itinerary with ID ${itineraryId} not found`);
+          }
+          return itinerary;
+        }
+        throw new Error(`Itinerary with ID ${itineraryId} not found`);
+      }
+
       const { data, error } = await supabase
         .from('itineraries')
         .select('*')
@@ -45,6 +95,30 @@ export const databaseService = {
    */
   async createItinerary(userId: string, name: string, destination: string, startDate?: string, endDate?: string, days: ItineraryDay[] = []) {
     try {
+      if (!isSupabaseConfigured()) {
+        console.warn('Supabase not configured. Falling back to localStorage.');
+        // Fallback to localStorage behavior
+        const itineraryData = {
+          id: Math.random().toString(36).substring(2, 15), // Generate a mock ID
+          user_id: userId,
+          name,
+          destination,
+          start_date: startDate,
+          end_date: endDate,
+          days,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        
+        const storageKey = 'itineraries';
+        const savedItems = localStorage.getItem(storageKey);
+        const itineraries = savedItems ? JSON.parse(savedItems) : [];
+        itineraries.push(itineraryData);
+        localStorage.setItem(storageKey, JSON.stringify(itineraries));
+        
+        return itineraryData;
+      }
+
       const { data, error } = await supabase
         .from('itineraries')
         .insert({
@@ -84,6 +158,29 @@ export const databaseService = {
     days?: ItineraryDay[] 
   }) {
     try {
+      if (!isSupabaseConfigured()) {
+        console.warn('Supabase not configured. Falling back to localStorage.');
+        // Fallback to localStorage behavior
+        const storageKey = 'itineraries';
+        const savedItems = localStorage.getItem(storageKey);
+        
+        if (savedItems) {
+          const itineraries = JSON.parse(savedItems);
+          const index = itineraries.findIndex((item: any) => item.id === itineraryId);
+          
+          if (index >= 0) {
+            itineraries[index] = {
+              ...itineraries[index],
+              ...updates,
+              updated_at: new Date().toISOString()
+            };
+            localStorage.setItem(storageKey, JSON.stringify(itineraries));
+            return itineraries[index];
+          }
+        }
+        throw new Error(`Itinerary with ID ${itineraryId} not found`);
+      }
+
       const { data, error } = await supabase
         .from('itineraries')
         .update({
@@ -120,6 +217,20 @@ export const databaseService = {
    */
   async deleteItinerary(itineraryId: string) {
     try {
+      if (!isSupabaseConfigured()) {
+        console.warn('Supabase not configured. Falling back to localStorage.');
+        // Fallback to localStorage behavior
+        const storageKey = 'itineraries';
+        const savedItems = localStorage.getItem(storageKey);
+        
+        if (savedItems) {
+          const itineraries = JSON.parse(savedItems);
+          const newItineraries = itineraries.filter((item: any) => item.id !== itineraryId);
+          localStorage.setItem(storageKey, JSON.stringify(newItineraries));
+        }
+        return;
+      }
+
       // Activities will be deleted automatically due to ON DELETE CASCADE
       const { error } = await supabase
         .from('itineraries')
@@ -327,9 +438,11 @@ export const databaseService = {
           title: activity.title,
           description: activity.description,
           location: activity.location,
-          time: activity.start_time ? 
-            `${new Date(activity.start_time).toLocaleTimeString()} - ${new Date(activity.end_time || activity.start_time).toLocaleTimeString()}` : 
-            '',
+          time: activity.time ? `${
+            safeParseDate(activity.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: true})
+          }${
+            activity.end_time ? ` - ${safeParseDate(activity.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: true})}` : ''
+          }` : '',
           type: activity.type,
           imageUrl: activity.image_url,
           dayNumber: activity.day_number,
@@ -362,12 +475,19 @@ export const databaseService = {
       
       // If we have a start_date, calculate dates for each day
       if (itinerary.start_date) {
-        const startDate = new Date(itinerary.start_date);
-        days.forEach(day => {
-          const dayDate = new Date(startDate);
-          dayDate.setDate(startDate.getDate() + (day.dayNumber - 1));
-          day.date = dayDate.toISOString().split('T')[0];
-        });
+        const startDate = safeParseDate(itinerary.start_date);
+        const itineraryDays = [];
+        
+        // Generate days from start date
+        for (let i = 0; i < dayCount; i++) {
+          const dayDate = safeParseDate(itinerary.start_date);
+          dayDate.setDate(startDate.getDate() + i);
+          itineraryDays.push({
+            dayNumber: i + 1,
+            date: dayDate.toISOString().split('T')[0],
+            activities: []
+          });
+        }
       }
       
       // Update the itinerary with the new days JSONB

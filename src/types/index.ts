@@ -10,8 +10,10 @@ export interface Message {
 
 /**
  * Activity type for itinerary items
+ * Comprehensive definition including all properties used across components
  */
 export interface Activity {
+  // Core properties
   id?: string;
   title: string;
   description: string;
@@ -21,12 +23,50 @@ export interface Activity {
   imageUrl?: string;
   dayNumber?: number;
   
-  // Additional properties for edit functionality
+  // Properties for editing
   dayDate?: Date;
+  date?: Date;
+  startTime?: string;
+  endTime?: string;
   displayStartTime?: string;
   displayEndTime?: string;
   parsedStartTime?: string;
   parsedEndTime?: string;
+  
+  // Optional properties for enhanced activities
+  category?: string;
+  subcategory?: string;
+  duration?: string;
+  price?: string;
+  notes?: string;
+  rating?: number;
+}
+
+/**
+ * ActivityEditModalProps interface for the modal that edits activities
+ * Type used specifically by the ActivityEditModal component
+ */
+export interface ActivityEditModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  activity: {
+    id: string;
+    title: string;
+    description: string;
+    location: string;
+    date?: Date;
+    startTime?: string;
+    endTime?: string;
+    imageUrl?: string;
+    type?: string;
+  };
+  onSave: (activity: Activity) => void;
+  isNewActivity?: boolean;
+  placeholders?: {
+    title?: string;
+    description?: string;
+    location?: string;
+  };
 }
 
 /**

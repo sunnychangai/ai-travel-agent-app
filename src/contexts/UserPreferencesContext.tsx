@@ -23,11 +23,13 @@ export interface UserPreferences {
 // Define the context type
 interface UserPreferencesContextType {
   userPreferences: UserPreferences | null;
+  preferences: UserPreferences | null;
   isLoading: boolean;
   savePreferences: (preferences: Partial<UserPreferences>) => Promise<void>;
   getUserPreferences: () => Promise<UserPreferences | null>;
   refreshPreferences: () => Promise<void>;
   updateDisplayName: (name: string) => Promise<void>;
+  updatePreferences: (preferences: Partial<UserPreferences>) => void;
   loading: boolean;
   error: string | null;
 }
@@ -35,6 +37,7 @@ interface UserPreferencesContextType {
 // Create the context with default values
 const UserPreferencesContext = createContext<UserPreferencesContextType>({
   userPreferences: null,
+  preferences: null,
   isLoading: false,
   loading: false,
   error: null,
@@ -42,6 +45,7 @@ const UserPreferencesContext = createContext<UserPreferencesContextType>({
   getUserPreferences: async () => null,
   refreshPreferences: async () => {},
   updateDisplayName: async () => {},
+  updatePreferences: () => {},
 });
 
 // Hook to use the user preferences context
@@ -235,17 +239,27 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
     }
   };
 
+  // Add an updatePreferences function that simply updates the userPreferences state
+  const updatePreferences = (newPreferences: Partial<UserPreferences>) => {
+    setUserPreferences(prev => {
+      if (!prev) return newPreferences as UserPreferences;
+      return { ...prev, ...newPreferences };
+    });
+  };
+
   return (
     <UserPreferencesContext.Provider
       value={{
         userPreferences,
+        preferences: userPreferences,
         isLoading,
-        loading: isLoading, // Alias for backward compatibility
+        loading: isLoading,
         error,
         savePreferences,
         getUserPreferences,
         refreshPreferences,
         updateDisplayName,
+        updatePreferences,
       }}
     >
       {children}

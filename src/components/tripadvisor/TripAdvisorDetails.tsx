@@ -126,7 +126,7 @@ export const TripAdvisorDetails: React.FC<TripAdvisorDetailsProps> = ({
                     {(location.rating || details?.rating) && (
                       <div className="flex items-center mb-3">
                         <Star size={18} className="text-yellow-500 mr-2" />
-                        <span className="font-medium">{(details?.rating || location.rating).toFixed(1)}</span>
+                        <span className="font-medium">{((details?.rating || location.rating) || 0).toFixed(1)}</span>
                         <span className="text-gray-500 ml-2">
                           ({details?.num_reviews || location.num_reviews || 0} reviews)
                         </span>
@@ -142,7 +142,7 @@ export const TripAdvisorDetails: React.FC<TripAdvisorDetailsProps> = ({
                           </Badge>
                           {(details?.subcategory || location.subcategory)?.map((sub, index) => (
                             <Badge key={index} variant="outline" className="mr-1">
-                              {sub.name}
+                              {sub?.name}
                             </Badge>
                           ))}
                         </div>

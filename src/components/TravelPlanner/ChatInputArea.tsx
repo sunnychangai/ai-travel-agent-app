@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { SendIcon, Mic, Paperclip, ArrowUp } from "lucide-react";
@@ -20,21 +20,82 @@ interface ChatInputAreaProps {
   suggestions?: SuggestionChip[];
   onSuggestionClick?: (suggestion: SuggestionChip) => void;
   isLoading?: boolean;
+  
+  // New props
+  value?: string;
+  onChange?: (value: string) => void;
+  onSend?: (message: string) => void;
+  isDisabled?: boolean;
+  placeholder?: string;
+  error?: string;
 }
 
 const ChatInputArea = ({
-  onSendMessage = () => {},
-  suggestions = [
-    { id: "1", text: "Recommend restaurants in Paris" },
-    { id: "2", text: "Find museums in Rome" },
-    { id: "3", text: "Plan a day in Barcelona" },
-  ],
-  onSuggestionClick = () => {},
+  onSendMessage,
+  suggestions = [],
+  onSuggestionClick,
   isLoading = false,
-}: ChatInputAreaProps) => {
-  const [message, setMessage] = useState("");
   
-  // Array of color classes for suggestion bubbles with updated styling
+  // New props with defaults
+  value,
+  onChange,
+  onSend,
+  isDisabled = false,
+  placeholder,
+  error
+}: ChatInputAreaProps) => {
+  // Use local state if value/onChange props aren't provided
+  const [localMessage, setLocalMessage] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Determine if we're using controlled or uncontrolled behavior
+  const isControlled = value !== undefined && onChange !== undefined;
+  const message = isControlled ? value : localMessage;
+  
+  // Update message state based on controlled or uncontrolled mode
+  const updateMessage = useCallback((newValue: string) => {
+    if (isControlled && onChange) {
+      onChange(newValue);
+    } else {
+      setLocalMessage(newValue);
+    }
+  }, [isControlled, onChange]);
+  
+  // Handle sending the message - memoized with useCallback
+  const handleSendMessage = useCallback(() => {
+    if (message.trim() && !isDisabled && !isLoading) {
+      // Use onSend prop if provided, otherwise fall back to onSendMessage
+      if (onSend) {
+        onSend(message);
+      } else if (onSendMessage) {
+        onSendMessage(message);
+      }
+      
+      // Clear message after sending
+      updateMessage("");
+    }
+  }, [message, isDisabled, isLoading, onSend, onSendMessage, updateMessage]);
+
+  // Memoize the keyboard event handler
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  }, [handleSendMessage]);
+
+  // Memoize suggestion click handler
+  const handleSuggestionClick = useCallback((suggestion: SuggestionChip) => {
+    // Update the input with the suggestion text
+    updateMessage(suggestion.text);
+    
+    // Call the provided onSuggestionClick handler if available
+    if (onSuggestionClick) {
+      onSuggestionClick(suggestion);
+    }
+  }, [updateMessage, onSuggestionClick]);
+
+  // Array of color classes for suggestion bubbles
   const bubbleColors = [
     "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200",
     "bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200",
@@ -44,104 +105,70 @@ const ChatInputArea = ({
     "bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200",
   ];
 
-  const handleSendMessage = () => {
-    if (message.trim() && !isLoading) {
-      onSendMessage(message);
-      setMessage("");
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  const isDisabled = !message.trim() || isLoading;
+  // Memoize onChange handler for the input
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    updateMessage(e.target.value);
+  }, [updateMessage]);
 
   return (
-    <div className="w-full relative">
-      {/* Floating suggestion bubbles with improved styling */}
-      {suggestions.length > 0 && (
-        <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 overflow-x-auto no-scrollbar px-4">
-          <div className="flex gap-2 flex-nowrap pb-2">
-            {suggestions.map((suggestion, index) => (
-              <button
-                key={suggestion.id}
-                onClick={() => onSuggestionClick(suggestion)}
-                className={`flex-none px-3 py-2 text-sm rounded-full transition-all duration-200 whitespace-nowrap shadow-sm ${bubbleColors[index % bubbleColors.length]} hover:shadow hover:scale-105 active:scale-95`}
-              >
-                "{suggestion.text}"
-              </button>
-            ))}
-          </div>
+    <div className="flex flex-col w-full">
+      {/* Suggestion chips - now directly in the chat input area */}
+      {suggestions && suggestions.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2 overflow-x-auto pb-1">
+          {suggestions.map((suggestion, index) => (
+            <button
+              key={suggestion.id}
+              onClick={() => handleSuggestionClick(suggestion)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap",
+                bubbleColors[index % bubbleColors.length]
+              )}
+              disabled={isDisabled}
+            >
+              {suggestion.text}
+            </button>
+          ))}
         </div>
       )}
-
-      {/* Input area with improved styling */}
-      <div className="w-full border-t bg-white px-5 py-4 flex items-center gap-3">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors"
-              >
-                <Paperclip className="h-5 w-5 text-slate-500" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>Attach files</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <Input
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask about your trip..."
-          className="flex-1 py-6 px-4 rounded-full border-slate-300 focus-visible:ring-blue-400 focus-visible:ring-offset-2 shadow-sm"
-          disabled={isLoading}
-        />
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="rounded-full hover:bg-slate-100 active:bg-slate-200 transition-colors"
-              >
-                <Mic className="h-5 w-5 text-slate-500" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>Voice input</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <Button
-          onClick={handleSendMessage}
-          disabled={isDisabled}
-          size="icon"
-          rounded="full"
-          className={cn(
-            "w-12 h-12 flex items-center justify-center transition-all duration-200 shadow-md",
-            isDisabled 
-              ? "bg-blue-400/50 text-white cursor-not-allowed" 
-              : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg active:scale-95"
-          )}
-          aria-label="Send message"
-        >
-          <ArrowUp className="h-5 w-5" />
-        </Button>
+      
+      {/* Input area - redesigned to match landing page */}
+      <div className="relative w-full pb-4">
+        <div className="flex items-center gap-3 w-full">
+          <input
+            type="text"
+            value={message}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder || "Ask about your next destination..."}
+            className={cn(
+              "flex-1 h-12 px-6 rounded-full bg-gray-100 border-0 text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500",
+              isDisabled ? "bg-gray-200 text-gray-500" : "bg-gray-100 text-gray-700",
+              isLoading ? "border-blue-300" : "",
+              error ? "focus:ring-red-500" : ""
+            )}
+            disabled={isDisabled}
+          />
+          <button
+            onClick={handleSendMessage}
+            disabled={isDisabled || !message.trim()}
+            className={cn(
+              "h-12 w-12 flex items-center justify-center rounded-full flex-shrink-0",
+              isDisabled || !message.trim()
+                ? "bg-blue-300 text-white cursor-not-allowed opacity-50"
+                : "bg-blue-500 text-white hover:bg-blue-600"
+            )}
+            aria-label="Send message"
+          >
+            <ArrowUp className="h-6 w-6" />
+          </button>
+        </div>
       </div>
+      
+      {error && (
+        <div className="text-red-500 text-sm mt-1">{error}</div>
+      )}
     </div>
   );
 };
 
-export default ChatInputArea;
+export default React.memo(ChatInputArea);

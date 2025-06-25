@@ -5,12 +5,15 @@ import { Activity, ItineraryDay } from "../../types";
 // Hook imports
 import { useItinerary } from '../../contexts/ItineraryContext';
 import { useNavigate } from 'react-router-dom';
-import { useEditableContent } from "../../hooks/useEditableContent";
+import { useActivityOperations } from "../../hooks/useActivityOperations";
 
 // Utility imports
 import { format, isValid, isToday, parse, parseISO } from 'date-fns';
-import { convertTo24Hour, convertToAMPM } from "../../utils/timeUtils";
+import { convertTo24Hour, convertToAMPM, formatTimeRange, parseTimeString } from "../../utils/timeUtils";
+import { formatDate, addOrdinalSuffix, safeParseDate } from "../../utils/dateUtils";
+import { getActivityIdSafely, ensureActivityId } from "../../utils/activityUtils";
 import { cn } from '../../lib/utils';
+import { generateItineraryTitle } from "../../utils/itineraryUtils";
 
 // Component imports
 import ActivityCard from './ActivityCard';
@@ -33,6 +36,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { useToast } from "../ui/use-toast";
 
 // Icon imports
 import { 
@@ -74,24 +78,11 @@ interface ItinerarySidebarProps {
   onEditActivity?: (dayNumber: number, activityId: string) => void;
   onDeleteActivity?: (dayNumber: number, activityId: string) => void;
   onUpdateActivity?: (dayNumber: number, activityId: string, updatedActivity: any) => void;
-  onSaveItinerary?: () => void;
+  onSaveItinerary?: (title?: string) => void;
   onShareItinerary?: () => void;
   onExportItinerary?: () => void;
   onPrintItinerary?: () => void;
   onRefreshItinerary?: () => void;
-}
-
-// Add a type definition for the ActivityEditModalActivity
-interface ActivityEditModalActivity {
-  id: string;
-  title: string;
-  description: string;
-  location: string;
-  date: Date;
-  startTime: string;
-  endTime: string;
-  imageUrl: string;
-  type?: string;
 }
 
 // Wrap the component with React.memo for shallow prop comparison
@@ -107,97 +98,264 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   onRefreshItinerary,
 }) => {
   // Get itinerary data from context
-  const { itineraryDays, addActivity, updateActivity, deleteActivity, saveItinerary, addDay } = useItinerary();
+  const { 
+    itineraryDays, 
+    saveItinerary, 
+    forceRefresh,
+    addDay,
+    currentItineraryTitle,
+    setCurrentItineraryTitle,
+    getCurrentItineraryTitle
+  } = useItinerary();
+  const { toast } = useToast(); // Add toast hook
   
   const [selectedDay, setSelectedDay] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"day" | "list">("day");
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [currentActivity, setCurrentActivity] = useState<Activity | null>(null);
+  
+  // Log whenever itinerary days change to help with debugging
+  useEffect(() => {
+    // Use a debounced logging approach to avoid excessive logs
+    const itineraryLength = itineraryDays.length;
+    console.log(`ItinerarySidebar: itineraryDays updated, length: ${itineraryLength}`);
+    
+    // Only execute selection logic if needed (days available but none selected)
+    if (itineraryLength > 0 && (selectedDay === "all" || !selectedDay)) {
+      setSelectedDay(itineraryDays[0].dayNumber.toString());
+      setViewMode("day");
+    } else if (itineraryLength === 0 && selectedDay !== "all") {
+      setSelectedDay("all");
+    }
+  }, [itineraryDays, selectedDay]);
+  
+  // Use our custom hook for activity operations
   const {
-    value: itineraryTitle,
-    setValue: setItineraryTitle,
-    isEditing: isEditingTitle,
-    startEditing: handleTitleEdit,
-    stopEditing: handleTitleSave,
-    handleKeyDown: handleTitleKeyPress,
-    inputRef: titleInputRef
-  } = useEditableContent<string>("My Itinerary");
-
-  // Format date for display - memoize to avoid recreating on every render
-  const formatDate = useCallback((dateString: string, formatType?: string) => {
-    try {
-      // Parse the date string to a Date object
-      const date = parseISO(dateString);
-      
-      // Validate date
-      if (!isValid(date)) {
-        console.error("Invalid date:", dateString);
-        return "Invalid date";
-      }
-      
-      // Add ordinal suffix to day (st, nd, rd, th)
-      const addOrdinalSuffix = (day: number): string => {
-        const j = day % 10;
-        const k = day % 100;
-        if (j === 1 && k !== 11) return day + "st";
-        if (j === 2 && k !== 12) return day + "nd";
-        if (j === 3 && k !== 13) return day + "rd";
-        return day + "th";
-      };
-      
-      // Format based on requested format
-      if (formatType === 'MM/DD') {
-        return format(date, 'MM/dd');
-      } else if (formatType === 'full') {
-        return format(date, 'EEEE, MMMM d');
-      } else if (formatType === 'monthDay') {
-        // Get components to add the ordinal suffix
-        const day = date.getDate();
-        const month = format(date, 'MMMM');
-        return `${month} ${addOrdinalSuffix(day)}`;
-      }
-      
-      // Default format
-      return format(date, 'EEE, MMM d');
-    } catch (error) {
-      console.error("Error formatting date:", error);
-      return "Invalid date";
+    editModalOpen,
+    setEditModalOpen,
+    currentActivity,
+    setCurrentActivity,
+    handleAddActivity: activityHookAdd,
+    handleEditActivity: activityHookEdit,
+    handleSaveActivity: activityHookSave,
+    handleDeleteActivity: activityHookDelete,
+    ensureActivityId
+  } = useActivityOperations();
+  
+  // Title editing state  
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  
+  // Handle title editing
+  const handleTitleEdit = useCallback(() => {
+    setIsEditingTitle(true);
+    hasUserEditedTitle.current = true;
+    setTimeout(() => titleInputRef.current?.focus(), 0);
+  }, []);
+  
+  const handleTitleSave = useCallback(() => {
+    setIsEditingTitle(false);
+  }, []);
+  
+  const handleTitleKeyPress = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      setIsEditingTitle(false);
+      hasUserEditedTitle.current = true;
+    }
+    if (e.key === 'Escape') {
+      setIsEditingTitle(false);
     }
   }, []);
-
-  // Create an initial day when the component mounts if no days exist
+  
+  // Handle title changes
+  const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setCurrentItineraryTitle(e.target.value);
+    hasUserEditedTitle.current = true;
+  }, [setCurrentItineraryTitle]);
+  
+  // Reset modal state on component mount
   useEffect(() => {
-    if (itineraryDays.length === 0 && typeof addDay === 'function') {
-      // Get today's date - for demo purposes, use March 17, 2025
-      // IMPORTANT: In production, replace this with: const today = new Date();
-      const today = new Date(2025, 2, 17); // Month is 0-indexed, so 2 = March
+    // Immediately reset modal state when component mounts
+    setEditModalOpen(false);
+    setCurrentActivity(null);
+    
+    // Also provide a cleanup function
+    return () => {
+      setEditModalOpen(false);
+      setCurrentActivity(null);
+    };
+  }, []); // Empty dependency array to run only on mount and unmount
+  
+  // UI loading state for save operation
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Track if the user has manually edited the title
+  const hasUserEditedTitle = useRef(false);
+
+  // Generate and set a title based on destination and dates when the itinerary changes
+  useEffect(() => {
+    if (itineraryDays.length > 0) {
+      // Get destination from activities - try to find the most relevant one
+      const activities = itineraryDays.flatMap(day => day.activities);
       
-      // Format using date-fns for consistency and correctness
-      const formattedDate = format(today, 'yyyy-MM-dd');
+      console.log('Auto-title generation - activities found:', activities.length);
       
-      // Validate the date before proceeding
-      if (!isValid(parseISO(formattedDate))) {
-        console.error("Generated invalid date:", formattedDate);
+      // Only proceed if we have activities to work with
+      if (activities.length === 0) {
+        console.log('Auto-title generation - skipped: no activities found');
         return;
       }
       
+      // First check if there's an activity with "city" or "destination" type
+      let destinationActivity = activities.find(activity => 
+        activity.type?.toLowerCase().includes('destination') ||
+        activity.type?.toLowerCase().includes('city')
+      );
+      
+      // If not, try to find one with "sightseeing" type as those are often landmarks
+      if (!destinationActivity) {
+        destinationActivity = activities.find(activity => 
+          activity.type?.toLowerCase().includes('sightseeing')
+        );
+      }
+      
+      // If we still don't have a destination activity, use the first activity with a meaningful location
+      if (!destinationActivity) {
+        destinationActivity = activities.find(activity => {
+          const location = activity.location?.trim();
+          return location && 
+                 location.length > 0 && 
+                 location !== 'Unknown' && 
+                 location !== 'TBD' &&
+                 !location.toLowerCase().includes('enter location');
+        });
+      }
+      
+      // Extract the city name from the location
+      let destination = '';
+      if (destinationActivity?.location) {
+        const location = destinationActivity.location.trim();
+        const addressParts = location.split(',');
+        
+        if (addressParts.length >= 2) {
+          // Use the city part (typically the second segment of the address)
+          destination = addressParts[1].trim();
+        } else if (addressParts.length === 1 && addressParts[0].trim()) {
+          // If there's only one part and it's not empty, use it
+          destination = addressParts[0].trim();
+        }
+        
+        // Clean up common words that shouldn't be in destination names
+        destination = destination.replace(/^\d+\s+/, ''); // Remove leading numbers
+        destination = destination.replace(/\b(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)\b/gi, '').trim();
+        
+        // If destination is still too generic or empty, skip auto-generation
+        if (!destination || 
+            destination.length < 2 || 
+            destination.toLowerCase().includes('unknown') ||
+            destination.toLowerCase().includes('location') ||
+            destination.toLowerCase() === 'tbd') {
+          destination = '';
+        }
+      }
+      
+      console.log('Auto-title generation - extracted destination:', destination);
+      console.log('Auto-title generation - current title:', currentItineraryTitle);
+      console.log('Auto-title generation - hasUserEditedTitle:', hasUserEditedTitle.current);
+      
+      // Only proceed if we found a meaningful destination
+      if (!destination) {
+        console.log('Auto-title generation - skipped: no meaningful destination found');
+        return;
+      }
+      
+      // Only update if the title is still the default and user hasn't manually edited it
+      const currentTitle = currentItineraryTitle;
+      const isDefaultTitle = currentTitle === "My Itinerary" || !currentTitle.trim();
+      
+      // Only auto-generate titles for new itineraries if the user hasn't manually edited the title
+      if (isDefaultTitle && !hasUserEditedTitle.current) {
+        // Get dates from first and last day
+        const sortedDays = [...itineraryDays].sort((a, b) => a.dayNumber - b.dayNumber);
+        
+        if (sortedDays.length > 0) {
+          try {
+            // Check for valid dates
+            const startDate = sortedDays[0]?.date;
+            const endDate = sortedDays[sortedDays.length - 1]?.date;
+            
+            console.log('Auto-title generation - dates:', { startDate, endDate });
+            
+            if (startDate && endDate) {
+              const newTitle = generateItineraryTitle(destination, startDate || '', endDate || '');
+              console.log('Auto-title generation - generated title:', newTitle);
+              setCurrentItineraryTitle(newTitle);
+            } else {
+              // Default title with just destination if dates are missing
+              const fallbackTitle = `Trip to ${destination}`;
+              console.log('Auto-title generation - fallback title (no dates):', fallbackTitle);
+              setCurrentItineraryTitle(fallbackTitle);
+            }
+          } catch (error) {
+            // If date processing fails, just use destination
+            const errorTitle = `Trip to ${destination}`;
+            console.log('Auto-title generation - error title:', errorTitle, error);
+            setCurrentItineraryTitle(errorTitle);
+          }
+        }
+      } else {
+        console.log('Auto-title generation - skipped because:', {
+          isDefaultTitle,
+          hasUserEditedTitle: hasUserEditedTitle.current
+        });
+      }
+    }
+  }, [itineraryDays, setCurrentItineraryTitle]); // Removed currentItineraryTitle from dependencies
+
+  // Create an initial day when the component mounts if no days exist
+  useEffect(() => {
+    // Skip this effect if it's been run once
+    const initialDayCreated = sessionStorage.getItem('initialDayCreated');
+    
+    if (itineraryDays.length === 0 && !initialDayCreated) {
+      console.log('ItinerarySidebar: Creating initial day');
+      
+      // Instead of using activityHookAdd which opens the modal,
+      // directly create an initial empty day
       const newDay = {
         dayNumber: 1,
-        date: formattedDate,
+        date: format(new Date(2025, 2, 17), 'yyyy-MM-dd'),
         activities: []
       };
       
-      console.log("Creating initial day with date:", formattedDate);
+      if (typeof addDay === 'function') {
+        addDay(newDay);
+      }
       
-      // Add the new day to the itinerary context
-      addDay(newDay);
-      // Always set the selected day to the first day
-      setSelectedDay("1");
-    } else if (itineraryDays.length > 0 && (selectedDay === "all" || !selectedDay)) {
-      // Always ensure a day is selected if days exist
-      setSelectedDay(itineraryDays[0].dayNumber.toString());
+      // Mark that we've created the initial day
+      sessionStorage.setItem('initialDayCreated', 'true');
     }
-  }, [itineraryDays, addDay, selectedDay]);
+  }, [itineraryDays.length, addDay]);
+
+  // Update selected day when the current selected day has no activities
+  useEffect(() => {
+    // Skip this check if in list view
+    if (selectedDay === "list") return;
+    
+    // Check if the currently selected day exists and has no activities
+    const selectedDayObj = itineraryDays.find(day => day.dayNumber === parseInt(selectedDay));
+
+    if (selectedDayObj && selectedDayObj.activities.length === 0) {
+      // Find the first day with activities
+      const dayWithActivities = itineraryDays.find(day => day.activities.length > 0);
+      
+      if (dayWithActivities) {
+        setSelectedDay(dayWithActivities.dayNumber.toString());
+      } else {
+        // If no days with activities, set to list view
+        setSelectedDay("list");
+        setViewMode("list");
+      }
+    }
+  }, [itineraryDays, selectedDay]);
   
   // Using useRef to store already processed IDs to prevent repeated fixes on every render
   const processedActivityIds = useRef(new Set<string>());
@@ -210,7 +368,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     }
     
     // Fast path: check if all activity IDs are already processed
-    if (activities.every(a => processedActivityIds.current.has(a.id))) {
+    if (activities.every(a => a.id && processedActivityIds.current.has(a.id))) {
       return activities;
     }
     
@@ -219,16 +377,18 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     const result: Activity[] = [];
     
     for (const activity of activities) {
+      const safeId = getActivityIdSafely(activity.id);
+      
       // Skip processing if already handled in a previous render
-      if (processedActivityIds.current.has(activity.id)) {
+      if (processedActivityIds.current.has(safeId)) {
         result.push(activity);
-        idMap.set(activity.id, true);
+        idMap.set(safeId, true);
         continue;
       }
       
       // If this ID is already seen in this batch, generate a new one
-      if (idMap.has(activity.id)) {
-        const newId = `${activity.id}-${Math.random().toString(36).substring(2, 7)}`;
+      if (idMap.has(safeId)) {
+        const newId = getActivityIdSafely(undefined);
         const updatedActivity = { ...activity, id: newId };
         result.push(updatedActivity);
         idMap.set(newId, true);
@@ -236,24 +396,53 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       } else {
         // No duplicate, keep original and mark as processed
         result.push(activity);
-        idMap.set(activity.id, true);
-        processedActivityIds.current.add(activity.id);
+        idMap.set(safeId, true);
+        processedActivityIds.current.add(safeId);
       }
     }
     
     return result;
-  }, []); // Empty dependency array since this doesn't depend on any props or state
+  }, []);
 
   // Get the date range for display - memoize based on itineraryDays
   const dateRange = useMemo(() => {
-    if (itineraryDays.length === 0) return "No dates selected";
+    if (!itineraryDays || itineraryDays.length === 0) {
+      return "No dates selected";
+    }
     
     const sortedDays = [...itineraryDays].sort((a, b) => a.dayNumber - b.dayNumber);
-    const startDate = new Date(sortedDays[0].date);
-    const endDate = new Date(sortedDays[sortedDays.length - 1].date);
     
-    return `${formatDate(startDate.toISOString())} - ${formatDate(endDate.toISOString())}`;
-  }, [itineraryDays, formatDate]);
+    // Check if days have valid dates
+    if (!sortedDays[0]?.date || !sortedDays[sortedDays.length - 1]?.date) {
+      return "No dates selected";
+    }
+    
+    // Use safeParseDate for safe date parsing with consistent error handling
+    const startDate = safeParseDate(sortedDays[0].date);
+    const endDate = safeParseDate(sortedDays[sortedDays.length - 1].date);
+    
+    // Debug logging to identify any date parsing issues
+    console.log('Date Range Calculation:', {
+      startDateStr: sortedDays[0].date,
+      parsedStartDate: startDate,
+      startMonth: startDate.getMonth() + 1,
+      startDay: startDate.getDate(),
+      startYear: startDate.getFullYear(),
+      endDateStr: sortedDays[sortedDays.length - 1].date,
+      parsedEndDate: endDate,
+      endMonth: endDate.getMonth() + 1,
+      endDay: endDate.getDate(),
+      endYear: endDate.getFullYear()
+    });
+    
+    // Only format if both dates are valid
+    if (!isValid(startDate) || !isValid(endDate)) {
+      return "No dates selected";
+    }
+    
+    // Always include month in both parts of the range for clarity
+    return `${formatDate(startDate, 'MM/DD', 'N/A')} - ${formatDate(endDate, 'MM/DD', 'N/A')}`;
+  }, [itineraryDays]);
 
   // Get the title for the current day - memoize based on selectedDay and itineraryDays
   const dayTitle = useMemo(() => {
@@ -263,321 +452,161 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
     
     if (!day) return `Day ${selectedDay}`;
+    if (!day.date) return `Day ${dayNumber}`;
     
-    return `Day ${day.dayNumber}: ${formatDate(day.date)}`;
-  }, [selectedDay, itineraryDays, formatDate]);
+    const dayDate = safeParseDate(day.date);
+    if (!isValid(dayDate)) return `Day ${dayNumber}`;
+    
+    return `Day ${day.dayNumber}: ${formatDate(dayDate, 'monthDay', '')}`;
+  }, [selectedDay, itineraryDays]);
 
-  // Handle adding a new activity
-  const handleAddActivity = (dayNumber: number) => {
-    // Handle case when no days exist in itinerary
-    if (itineraryDays.length === 0) {
-      // Get today's date - for demo purposes, use March 17, 2025
-      // IMPORTANT: In production, replace this with: const today = new Date();
-      const today = new Date(2025, 2, 17); // Month is 0-indexed, so 2 = March
-      
-      // Format using date-fns for consistency and correctness
-      const formattedDate = format(today, 'yyyy-MM-dd');
-      
-      // Validate the date before proceeding
-      if (!isValid(parseISO(formattedDate))) {
-        console.error("Generated invalid date:", formattedDate);
-        return;
-      }
-      
-      const newDay = {
-        dayNumber: 1,
-        date: formattedDate,
-        activities: []
-      };
-      
-      // Add the new day to the itinerary context
-      try {
-        // If addDay exists in the context, use it
-        if (typeof addDay === 'function') {
-          addDay(newDay);
-        } else {
-          console.error("addDay function not available");
-          return;
-        }
-        
-        // Use the new day
-        dayNumber = 1;
-        setSelectedDay("1");
-        
-        // Continue with activity creation below
-      } catch (error) {
-        console.error("Error creating new day:", error);
-        return;
-      }
-    } else if (isNaN(dayNumber) || dayNumber <= 0) {
-      // Handle "all" view case - default to first day if available
-      dayNumber = itineraryDays[0].dayNumber;
-    }
+  // Wrapper functions that use the hook functionality but also call the prop callbacks if provided
+  const handleAddActivity = useCallback((dayNumber: number, activity?: Activity) => {
+    console.log('ItinerarySidebar: handleAddActivity called', { dayNumber });
     
-    // If we get here, either we have days or we just created one
-    const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
+    const createdDayNumber = activityHookAdd(dayNumber);
+    setSelectedDay(createdDayNumber?.toString() || dayNumber.toString());
     
-    // If day doesn't exist yet (because we just created it), use dummy data
-    // Always validate the date first
-    let date: Date;
-    if (day) {
-      date = parseISO(day.date);
-      if (!isValid(date)) {
-        console.error("Invalid date in day object:", day.date);
-        date = new Date(2025, 2, 17); // Fallback to March 17, 2025
-      }
-    } else {
-      date = new Date(2025, 2, 17); // Default to March 17, 2025
-    }
-    
-    // Default time in 12-hour format
-    const defaultDisplayTime = "12:00 PM";
-    
-    // Convert to 24-hour format for the edit modal
-    const editTime = convertTo24Hour(defaultDisplayTime);
-    
-    // Create an empty activity with default values
-    setCurrentActivity({
-      id: "", // Empty ID indicates this is a new activity
-      title: "",
-      description: "",
-      location: "",
-      time: defaultDisplayTime,
-      type: "Activity",
-      imageUrl: "",
-      // Store the day date for reference
-      dayDate: date,
-      // Store the time in both display format and edit format
-      displayStartTime: defaultDisplayTime,
-      displayEndTime: "",
-      parsedStartTime: editTime,
-      parsedEndTime: ""
-    });
-    
-    // Set the selected day to ensure the activity appears in the right place
-    setSelectedDay(dayNumber.toString());
-    
-    // Open the edit modal
-    setEditModalOpen(true);
-    
-    // Call the onAddActivity prop if provided (for external handlers)
     if (onAddActivity) {
-      onAddActivity(dayNumber);
+      // Use the prop handler if provided
+      onAddActivity(dayNumber, activity);
     }
-  };
+  }, [activityHookAdd, onAddActivity, setSelectedDay]);
 
-  // Handle editing an activity
-  const handleEditActivity = (dayNumber: number, activityId: string) => {
-    const day = itineraryDays.find((d) => d.dayNumber === dayNumber);
-    if (day) {
-      const activity = day.activities.find((a) => a.id === activityId);
-      if (activity) {
-        // Parse the date from the day
-        const date = new Date(day.date);
-        
-        // Parse the time properly, handling AM/PM format
-        let displayStartTime = activity.time;
-        let displayEndTime = '';
-        
-        if (activity.time.includes(' - ')) {
-          const timeParts = activity.time.split(' - ');
-          displayStartTime = timeParts[0];
-          displayEndTime = timeParts[1];
-        }
-        
-        // Convert AM/PM time to 24-hour format for the time input
-        const editStartTime = convertTo24Hour(displayStartTime);
-        const editEndTime = convertTo24Hour(displayEndTime);
-        
-        setCurrentActivity({
-          ...activity,
-          // Ensure the activity has a type, defaulting to "Activity" if not specified
-          type: activity.type || "Activity",
-          // Store the day date for reference
-          dayDate: date,
-          // Store the time in both display format and edit format
-          displayStartTime,
-          displayEndTime,
-          parsedStartTime: editStartTime,
-          parsedEndTime: editEndTime
-        });
-        setEditModalOpen(true);
-        
-        // Call the onEditActivity prop for logging purposes only
-        if (onEditActivity) {
-          onEditActivity(dayNumber, activityId);
-        }
-      }
+  const handleEditActivity = useCallback((dayNumber: number, activityId: string) => {
+    console.log('ItinerarySidebar: handleEditActivity called', { dayNumber, activityId });
+    
+    activityHookEdit(dayNumber, activityId);
+    
+    if (onEditActivity) {
+      // Use the prop handler if provided
+      onEditActivity(dayNumber, activityId);
     }
-  };
+  }, [activityHookEdit, onEditActivity]);
 
-  // Handle saving an activity
-  const handleSaveActivity = (updatedActivity: Activity & { startTime?: string; endTime?: string }) => {
-    // Check if the activity has a date property and convert it to string format
-    let activityDate = '';
-    if (updatedActivity.dayDate instanceof Date) {
-      activityDate = format(updatedActivity.dayDate, 'yyyy-MM-dd');
-    }
-
-    if (currentActivity?.id) {
-      // Update existing activity
-      const dayNumber = parseInt(selectedDay);
-      
-      let formattedTime = '';
-      if ('startTime' in updatedActivity && typeof updatedActivity.startTime === 'string') {
-        const startTimeAMPM = convertToAMPM(updatedActivity.startTime);
-        formattedTime = startTimeAMPM;
-        
-        if (updatedActivity.endTime && typeof updatedActivity.endTime === 'string') {
-          const endTimeAMPM = convertToAMPM(updatedActivity.endTime);
-          formattedTime += ` - ${endTimeAMPM}`;
-        }
-      } else if ('time' in updatedActivity) {
-        formattedTime = updatedActivity.time;
-      }
-      
-      if (onUpdateActivity) {
-        onUpdateActivity(dayNumber, currentActivity.id, {
-          ...updatedActivity,
-          time: formattedTime
-        });
-      } else {
-        // Default implementation if no prop provided
-        updateActivity(dayNumber, currentActivity.id, {
-          ...updatedActivity,
-          time: formattedTime
-        });
-      }
-    } else {
-      // Add new activity
-      let dayNumber = parseInt(selectedDay);
-      
-      // Format the time
-      let formattedTime = '';
-      if ('startTime' in updatedActivity && typeof updatedActivity.startTime === 'string') {
-        const startTimeAMPM = convertToAMPM(updatedActivity.startTime);
-        formattedTime = startTimeAMPM;
-        
-        if (updatedActivity.endTime && typeof updatedActivity.endTime === 'string') {
-          const endTimeAMPM = convertToAMPM(updatedActivity.endTime);
-          formattedTime += ` - ${endTimeAMPM}`;
-        }
-      } else if ('time' in updatedActivity) {
-        formattedTime = updatedActivity.time;
-      }
-      
-      // Generate a unique ID for the new activity
-      const newActivityId = `activity-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
-      
-      // Create the new activity object
-      const newActivity = {
-        ...updatedActivity,
-        id: newActivityId,
-        time: formattedTime
-      };
-      
-      // Check if we need to create a new day or update an existing day's date
-      if (activityDate && itineraryDays.length > 0) {
-        // Check if the activity date matches any existing day
-        const existingDay = itineraryDays.find(day => day.date === activityDate);
-        
-        if (existingDay) {
-          // If day exists, use its day number
-          dayNumber = existingDay.dayNumber;
-          setSelectedDay(dayNumber.toString());
-        } else {
-          // If this is the first activity and the user changed the date
-          if (itineraryDays.length === 1 && itineraryDays[0].activities.length === 0) {
-            // Update the existing day's date instead of creating a new one
-            const updatedDay = {
-              ...itineraryDays[0],
-              date: activityDate
-            };
-            
-            // Update the day in the context
-            if (typeof addDay === 'function') {
-              addDay(updatedDay);
-            }
-            
-            // Keep using day 1
-            dayNumber = 1;
-          } else {
-            // Create a new day
-            const newDayNumber = Math.max(...itineraryDays.map(d => d.dayNumber)) + 1;
-            const newDay = {
-              dayNumber: newDayNumber,
-              date: activityDate,
-              activities: []
-            };
-            
-            // Add the new day
-            if (typeof addDay === 'function') {
-              addDay(newDay);
-            }
-            
-            // Use the new day number
-            dayNumber = newDayNumber;
-            setSelectedDay(dayNumber.toString());
-          }
-        }
-      }
-      
-      // Add the activity to the itinerary
-      if (onAddActivity) {
-        // If external handler is provided, call it and let it handle the activity creation
-        onAddActivity(dayNumber, newActivity);
-      } else {
-        // Use the internal addActivity function
-        addActivity(dayNumber, newActivity);
+  const handleSaveActivity = useCallback((activity: Activity, selectedDayNumber: number) => {
+    console.log('ItinerarySidebar: handleSaveActivity', { activity, selectedDayNumber });
+    
+    const success = activityHookSave(activity, selectedDayNumber.toString());
+    
+    if (success && !activity.id && activity.dayDate) {
+      const activityDate = format(activity.dayDate, 'yyyy-MM-dd');
+      const existingDay = itineraryDays.find(day => day.date === activityDate);
+      if (existingDay) {
+        setSelectedDay(existingDay.dayNumber.toString());
       }
     }
     
-    // Close the modal after saving
-    setEditModalOpen(false);
-    setCurrentActivity(null);
-  };
+    if (onUpdateActivity && selectedDayNumber && activity.id) {
+      // Use the prop handler if provided
+      onUpdateActivity(selectedDayNumber, activity.id, activity);
+    }
+  }, [activityHookSave, onUpdateActivity, itineraryDays, setSelectedDay]);
 
-  // Handle deleting an activity
-  const handleDeleteActivity = (dayNumber: number, activityId: string) => {
+  const handleDeleteActivity = useCallback((dayNumber: number, activityId: string) => {
     console.log('ItinerarySidebar: handleDeleteActivity called', { dayNumber, activityId });
+    
+    activityHookDelete(dayNumber, activityId);
     
     if (onDeleteActivity) {
       // Use the prop handler if provided
       onDeleteActivity(dayNumber, activityId);
-    } else {
-      // Use the context deleteActivity function directly
-      deleteActivity(dayNumber, activityId);
     }
     
     // Force a component update to ensure UI reflects the deletion
     setSelectedDay(selectedDay); // Re-set the same value to trigger a re-render
-  };
+  }, [activityHookDelete, onDeleteActivity, selectedDay]);
 
   // Handle saving the itinerary
-  const handleSaveItinerary = () => {
-    if (onSaveItinerary) {
-      onSaveItinerary();
-    } else {
-      // Default implementation if no prop provided
-      saveItinerary("My Itinerary");
+  const handleSaveItinerary = useCallback(async () => {
+    if (isSaving) return; // Prevent multiple clicks
+    
+    console.log('ItinerarySidebar: handleSaveItinerary called with title:', currentItineraryTitle);
+    console.log('ItinerarySidebar: hasUserEditedTitle:', hasUserEditedTitle.current);
+    
+    setIsSaving(true);
+    try {
+      if (onSaveItinerary) {
+        console.log('ItinerarySidebar: Calling onSaveItinerary with title:', currentItineraryTitle);
+        onSaveItinerary(currentItineraryTitle);
+        // Toast will be handled by the parent component
+      } else {
+        // Default implementation if no prop provided
+        console.log('ItinerarySidebar: Using default save with title:', currentItineraryTitle);
+        const itineraryId = await saveItinerary(currentItineraryTitle);
+        
+        // Show toast notification only if save was successful
+        if (itineraryId) {
+          // Use the toast component from UI library
+          toast({
+            title: "Trip Saved!",
+            description: "Your itinerary has been saved successfully.",
+            variant: "travel",
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error saving itinerary:', error);
+      // Show error toast
+      toast({
+        title: "Save Failed",
+        description: "There was an error saving your itinerary. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
     }
-  };
+  }, [onSaveItinerary, saveItinerary, currentItineraryTitle, isSaving, toast]);
 
-  // Toggle between day view and list view
-  const toggleViewMode = () => {
-    setViewMode(viewMode === "day" ? "list" : "day");
-  };
+  // Now add memoization for all computed values
+  
+  // Memoize the filtered days for day view
+  const filteredDayForDayView = useMemo(() => 
+    itineraryDays.filter((day) => day.dayNumber === parseInt(selectedDay)),
+    [itineraryDays, selectedDay]
+  );
 
-  // Helper function to ensure activity has required id
-  const ensureActivityId = (activity: Activity): Activity & { id: string } => {
+  // Memoize filtered days with activities for list view
+  const daysWithActivities = useMemo(() => 
+    itineraryDays
+      .filter(day => day.activities.length > 0)
+      .map(day => ({
+        activities: day.activities,
+        date: day.date,
+        dayNumber: day.dayNumber
+      })),
+    [itineraryDays]
+  );
+
+  // Memoize the current selected day information
+  const selectedDayData = useMemo(() => {
+    if (selectedDay !== "all") {
+      const day = itineraryDays.find(d => d.dayNumber === parseInt(selectedDay));
+      return {
+        date: day?.date || '',
+        formattedDate: formatDate(day?.date || '', 'monthDay')
+      };
+    }
     return {
-      ...activity,
-      id: activity.id || `activity-${Date.now()}-${Math.random()}`
+      date: '',
+      formattedDate: itineraryDays.length === 1 ? 
+        formatDate(itineraryDays[0]?.date || '', 'monthDay') : 
+        "All Days"
     };
-  };
+  }, [itineraryDays, selectedDay]);
+
+  // Memoize the itinerary days summary
+  const itineraryDaysSummary = useMemo(() => {
+    if (itineraryDays.length > 0) {
+      return itineraryDays.length === 1 
+        ? formatDate(itineraryDays[0].date, 'dayAndDate')
+        : dateRange;
+    }
+    return "No dates selected";
+  }, [itineraryDays, dateRange]);
 
   return (
-    <div className="h-full flex flex-col bg-gray-150">
+    <div className="h-full flex flex-col bg-gray-185">
       {/* Itinerary header */}
       <div className="px-8 pt-5 pb-4 border-b bg-white">
         <div className="flex flex-col">
@@ -586,8 +615,8 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
               <input
                 ref={titleInputRef}
                 type="text"
-                value={itineraryTitle}
-                onChange={(e) => setItineraryTitle(e.target.value)}
+                value={currentItineraryTitle}
+                onChange={handleTitleChange}
                 onBlur={handleTitleSave}
                 onKeyDown={handleTitleKeyPress}
                 className="w-full border-b border-slate-300 focus:border-blue-500 focus:outline-none py-1 px-0 bg-transparent"
@@ -598,7 +627,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
                 className="flex items-center cursor-text" 
                 onClick={handleTitleEdit}
               >
-                <span>{itineraryTitle}</span>
+                <span>{currentItineraryTitle}</span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -616,72 +645,83 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
             <div className="flex items-center text-slate-400">
               <CalendarIcon className="h-4 w-4 mr-2 text-slate-400" />
               <span className="text-sm">
-                {itineraryDays.length > 0 
-                  ? itineraryDays.length === 1 
-                    ? formatDate(itineraryDays[0].date, 'MM/DD')
-                    : `${itineraryDays.length} days` 
-                  : "0 days"}
+                {itineraryDaysSummary}
               </span>
             </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleViewMode}
-              className="h-8 px-3 border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 focus:ring-blue-500 transition-colors text-slate-500 text-sm rounded"
-            >
-              {viewMode === "day" ? (
-                <ListIcon className="h-4 w-4 mr-1.5 text-slate-400" />
-              ) : (
-                <CalendarIcon className="h-4 w-4 mr-1.5 text-slate-400" />
-              )}
-              {viewMode === "day" ? "List View" : "Day View"}
-            </Button>
+            <div className="flex space-x-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex items-center h-8 px-3 text-xs"
+                onClick={handleSaveItinerary}
+                disabled={itineraryDays.length === 0 || isSaving}
+              >
+                {isSaving ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-slate-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-3.5 w-3.5 mr-1" />
+                    Save
+                  </>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex items-center h-8 px-3 text-xs"
+                onClick={onShareItinerary}
+                disabled={!onShareItinerary}
+              >
+                <Share className="h-3.5 w-3.5 mr-1" />
+                Share
+              </Button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Day selector area - Only show in day view */}
-      {viewMode === "day" && (
-        <div className="px-8 py-2 bg-white flex justify-between items-center border-b">
-          <h3 className="text-base font-medium text-slate-700">Select Day:</h3>
-          
-          {/* Day selector */}
-          <div className="flex items-center">
-            <Select
-              value={selectedDay}
-              onValueChange={setSelectedDay}
-            >
-              <SelectTrigger className="w-[180px] h-8 border border-slate-200 rounded shadow-sm pr-1">
-                <SelectValue placeholder="Select a day" />
-              </SelectTrigger>
-              <SelectContent>
-                {itineraryDays.map((day) => (
+      {/* Day selector area - Always show */}
+      <div className="px-8 py-2 bg-white flex justify-between items-center border-b">
+        <h3 className="text-base font-medium text-slate-700">Select View:</h3>
+        
+        {/* Day/List selector */}
+        <div className="flex items-center">
+          <Select
+            value={selectedDay}
+            onValueChange={(value) => {
+              setSelectedDay(value);
+              // Set view mode based on selection
+              setViewMode(value === "list" ? "list" : "day");
+            }}
+          >
+            <SelectTrigger className={`w-[180px] h-8 border border-slate-200 rounded shadow-sm pr-1 ${selectedDay === "list" ? "font-bold" : ""}`}>
+              <SelectValue placeholder="Select a view" />
+            </SelectTrigger>
+            <SelectContent>
+              {itineraryDays
+                .filter(day => day.activities.length > 0)
+                .map((day) => (
                   <SelectItem key={day.dayNumber} value={day.dayNumber.toString()}>
-                    {formatDate(day.date, 'full')}
+                    {formatDate(day.date, 'dayAndDate')}
                   </SelectItem>
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
+              <SelectItem value="list" className="font-bold">List View</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-      )}
+      </div>
 
       {/* Day title and Add button - Only shown in day view */}
       {viewMode === "day" && (
-        <div className="px-8 py-4 bg-gray-150 flex justify-between items-center">
+        <div className="px-8 py-4 bg-gray-185 flex justify-between items-center">
           <h3 className="text-xl font-medium text-slate-700">
-            {selectedDay !== "all" ? (
-              // In day view, just show the date
-              formatDate(
-                itineraryDays.find(d => d.dayNumber === parseInt(selectedDay))?.date || '', 
-                'monthDay'
-              )
-            ) : (
-              itineraryDays.length === 1 ? 
-                formatDate(itineraryDays[0].date, 'monthDay') : 
-                "All Days"
-            )}
+            {selectedDayData.formattedDate}
           </h3>
           
           <Button
@@ -689,7 +729,27 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
             size="sm"
             onClick={() => {
               const dayNum = selectedDay !== "all" ? parseInt(selectedDay) : 0;
-              handleAddActivity(dayNum);
+              console.log("[Add Item Button] clicked - dayNum:", dayNum);
+              
+              // Get the appropriate day
+              const day = itineraryDays.find(d => d.dayNumber === dayNum);
+              const defaultDate = day ? safeParseDate(day.date) : new Date();
+              
+              // Set minimal activity data needed for the modal
+              setCurrentActivity({
+                id: "", // Empty ID indicates a new activity
+                title: "",
+                description: "",
+                location: "",
+                time: "12:00 PM",
+                type: "Activity",
+                imageUrl: "",
+                dayDate: defaultDate,
+                dayNumber: dayNum
+              });
+              
+              // Open the modal directly
+              setEditModalOpen(true);
             }}
             className="h-8 px-3 border border-green-300 shadow-none bg-green-50 hover:bg-green-100 hover:border-green-300 focus:ring-green-500 transition-colors text-green-600 text-sm rounded"
           >
@@ -700,87 +760,106 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       )}
 
       {/* Activity list */}
-      <ScrollArea className="flex-1 p-0 pr-8 bg-gray-150">
+      <ScrollArea className="flex-1 pb-4 pl-4 pr-8 bg-gray-185">
         {viewMode === "day" ? (
           // Day view
           <>
             {selectedDay !== "all" && (
-              <div className="space-y-4 pl-3 pt-4">
-                {itineraryDays
-                  .filter((day) => day.dayNumber === parseInt(selectedDay))
-                  .map((day) => (
-                    <div key={day.dayNumber} className="space-y-4">
-                      {day.activities.length === 0 ? (
-                        <div className="text-center py-12">
-                          <p className="text-slate-500 mb-4 text-lg">No items planned for this day yet.</p>
-                          <button 
-                            onClick={() => handleAddActivity(day.dayNumber)}
-                            className="text-slate-800 font-medium hover:text-blue-600 transition-colors"
-                          >
-                            Add your first item
-                          </button>
-                        </div>
-                      ) : (
-                        getActivitiesWithUniqueIds(day.activities).map((activity) => (
-                          <ActivityCard
-                            key={activity.id || `activity-${activity.title}-${Math.random()}`}
-                            activity={{
-                              ...activity,
-                              id: activity.id || `activity-${Date.now()}-${Math.random()}`
-                            }}
-                            onEdit={(id) => handleEditActivity(parseInt(selectedDay), id)}
-                            onDelete={(id) => handleDeleteActivity(parseInt(selectedDay), id)}
-                          />
-                        ))
-                      )}
-                    </div>
-                  ))}
+              <div className="space-y-4 pl-3">
+                {filteredDayForDayView.map((day) => (
+                  <div key={day.dayNumber} className="space-y-4">
+                    {day.activities.length === 0 ? (
+                      <div className="text-center py-12">
+                        <p className="text-slate-500 mb-4 text-lg">No items planned for this day yet.</p>
+                        <button 
+                          onClick={() => {
+                            console.log("[Add your first item] clicked - dayNumber:", day.dayNumber);
+                            
+                            // Get the date for this day
+                            const defaultDate = safeParseDate(day.date);
+                            
+                            // Set minimal activity data needed for the modal
+                            setCurrentActivity({
+                              id: "", // Empty ID indicates a new activity
+                              title: "",
+                              description: "",
+                              location: "",
+                              time: "12:00 PM",
+                              type: "Activity",
+                              imageUrl: "",
+                              dayDate: defaultDate,
+                              dayNumber: day.dayNumber
+                            });
+                            
+                            // Open the modal directly
+                            setEditModalOpen(true);
+                          }}
+                          className="text-slate-800 font-medium hover:text-blue-600 transition-colors"
+                        >
+                          Add your first item
+                        </button>
+                      </div>
+                    ) : (
+                      getActivitiesWithUniqueIds(day.activities).map((activity) => (
+                        <ActivityCard
+                          key={getActivityIdSafely(activity.id)}
+                          activity={ensureActivityId(activity)}
+                          onEdit={(id) => handleEditActivity(parseInt(selectedDay), id)}
+                          onDelete={(id) => handleDeleteActivity(parseInt(selectedDay), id)}
+                        />
+                      ))
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </>
         ) : (
           // List view
           <ItineraryDayList
-            days={itineraryDays.map(day => ({
-              activities: day.activities,
-              date: day.date,
-              dayNumber: day.dayNumber
-            }))}
+            days={daysWithActivities}
             onEditActivity={handleEditActivity}
             onDeleteActivity={handleDeleteActivity}
             onEditDay={handleAddActivity}
+            setCurrentActivity={setCurrentActivity}
+            setEditModalOpen={setEditModalOpen}
           />
         )}
       </ScrollArea>
 
       {/* Activity edit modal */}
-      {editModalOpen && currentActivity && (
-        <ActivityEditModal
-          open={editModalOpen}
-          onOpenChange={(open) => {
-            setEditModalOpen(open);
-            if (!open) setCurrentActivity(null);
-          }}
-          activity={{
-            id: currentActivity.id,
-            title: currentActivity.title || '',
-            description: currentActivity.description || '',
-            location: currentActivity.location || '',
-            date: currentActivity.dayDate || new Date(),
-            startTime: currentActivity.parsedStartTime || "12:00",
-            endTime: currentActivity.parsedEndTime || "",
-            imageUrl: currentActivity.imageUrl || '',
-            type: currentActivity.type || 'Activity'
-          } as ActivityEditModalActivity}
-          onSave={handleSaveActivity}
-          isNewActivity={!currentActivity.id}
-          placeholders={{
-            title: "Enter activity title...",
-            description: "Describe your activity...",
-            location: "Enter location..."
-          }}
-        />
-      )}
+      <ActivityEditModal
+        open={editModalOpen}
+        onOpenChange={(open) => {
+          console.log("[ItinerarySidebar] ActivityEditModal onOpenChange:", open);
+          setEditModalOpen(open);
+          if (!open) setCurrentActivity(null);
+        }}
+        activity={currentActivity || {
+          id: '',
+          title: '',
+          description: '',
+          location: '',
+          date: new Date(),
+          startTime: "12:00",
+          endTime: "",
+          imageUrl: '',
+          type: 'Activity'
+        }}
+        onSave={(modalActivity) => {
+          const dayNum = selectedDay !== "all" && selectedDay !== "list" 
+            ? parseInt(selectedDay) 
+            : (currentActivity?.dayNumber || itineraryDays[0]?.dayNumber || 1);
+          console.log('[ItinerarySidebar] ActivityEditModal onSave - dayNum:', dayNum, 'activity:', modalActivity);
+          handleSaveActivity(modalActivity, dayNum);
+        }}
+        isNewActivity={!currentActivity?.id}
+        placeholders={{
+          title: "Enter activity title...",
+          description: "Describe your activity...",
+          location: "Enter location..."
+        }}
+      />
     </div>
   );
 });

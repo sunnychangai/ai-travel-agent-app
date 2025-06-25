@@ -1,10 +1,14 @@
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 export const authService = {
   /**
    * Get the current user
    */
   async getCurrentUser() {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured. Please set up your environment variables.');
+    }
+    
     const { data, error } = await supabase.auth.getUser();
     if (error) throw error;
     return data.user;
@@ -14,6 +18,11 @@ export const authService = {
    * Get the current session
    */
   async getSession() {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase is not configured. No session available.');
+      return null;
+    }
+    
     const { data, error } = await supabase.auth.getSession();
     if (error) throw error;
     return data.session;
@@ -23,6 +32,10 @@ export const authService = {
    * Sign up with email and password
    */
   async signUp(email: string, password: string) {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured. Please set up your environment variables.');
+    }
+    
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -36,6 +49,10 @@ export const authService = {
    * Sign in with email and password
    */
   async signIn(email: string, password: string) {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured. Please set up your environment variables.');
+    }
+    
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -49,6 +66,10 @@ export const authService = {
    * Sign out the current user
    */
   async signOut() {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured. Please set up your environment variables.');
+    }
+    
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   },
@@ -57,6 +78,10 @@ export const authService = {
    * Reset password
    */
   async resetPassword(email: string) {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured. Please set up your environment variables.');
+    }
+    
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
@@ -67,6 +92,10 @@ export const authService = {
    * Update user password
    */
   async updatePassword(password: string) {
+    if (!isSupabaseConfigured()) {
+      throw new Error('Supabase is not configured. Please set up your environment variables.');
+    }
+    
     const { error } = await supabase.auth.updateUser({
       password,
     });
@@ -77,6 +106,11 @@ export const authService = {
    * Subscribe to auth state changes
    */
   onAuthStateChange(callback: (event: string, session: any) => void) {
+    if (!isSupabaseConfigured()) {
+      console.warn('Supabase is not configured. Auth state changes will not work.');
+      return { data: { subscription: { unsubscribe: () => {} } } };
+    }
+    
     return supabase.auth.onAuthStateChange(callback);
   }
 }; 

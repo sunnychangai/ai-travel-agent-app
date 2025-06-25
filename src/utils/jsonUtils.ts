@@ -4,51 +4,76 @@
  * @returns Repaired JSON string that can be parsed
  */
 export const repairJsonString = (jsonString: string): string => {
-  // Remove markdown code blocks
-  let repairedString = jsonString
-    .replace(/^```json\s*/g, '')
-    .replace(/^```\s*/g, '')
-    .replace(/\s*```$/g, '');
-    
-  // Fix common JSON issues
-  repairedString = repairedString
-    .replace(/,\s*}/g, '}')        // Remove trailing commas in objects
-    .replace(/,\s*\]/g, ']')       // Remove trailing commas in arrays
-    .replace(/\\n/g, ' ')          // Replace escaped newlines with spaces
-    .replace(/\n/g, ' ')           // Replace literal newlines with spaces
-    .replace(/\\"/g, '__QUOTE__')  // Temporarily replace escaped quotes
-    
-    // Fix property names without quotes or with single quotes
-    .replace(/([{,])\s*([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')  // Add quotes to unquoted property names
-    .replace(/([{,])\s*'([^']+)'\s*:/g, '$1"$2":')        // Replace single quotes with double quotes in property names
-    
-    // Fix issues with values
-    .replace(/:\s*'([^']+)'/g, ':"$1"')     // Replace single-quoted values with double-quoted values
-    
-    .replace(/(?<!")"(?!")/g, '"') // Fix unbalanced quotes
-    .replace(/__QUOTE__/g, '\\"'); // Restore escaped quotes
-    
-  // Check for unterminated strings
-  const doubleQuotes = repairedString.match(/"/g);
-  if (doubleQuotes && doubleQuotes.length % 2 !== 0) {
-    // Add a closing quote at the end if needed
-    repairedString += '"';
+  // Early return for empty strings
+  if (!jsonString || !jsonString.trim()) {
+    return '';
   }
   
-  // Check for missing closing brackets
-  const openBraces = (repairedString.match(/{/g) || []).length;
-  const closeBraces = (repairedString.match(/}/g) || []).length;
-  for (let i = 0; i < openBraces - closeBraces; i++) {
-    repairedString += '}';
+  // First, try to remove any markdown code blocks
+  let repairedString = jsonString.trim();
+  
+  // Clean up markdown code blocks in one pass
+  if (repairedString.startsWith('```')) {
+    const codeBlockRegex = /^```(?:json)?\s*([\s\S]*?)```$/;
+    const match = repairedString.match(codeBlockRegex);
+    if (match && match[1]) {
+      repairedString = match[1].trim();
+    } else {
+      // Just remove the starting ticks if we can't find the ending ones
+      repairedString = repairedString.replace(/^```(?:json)?\s*/, '');
+    }
   }
   
-  const openBrackets = (repairedString.match(/\[/g) || []).length;
-  const closeBrackets = (repairedString.match(/\]/g) || []).length;
-  for (let i = 0; i < openBrackets - closeBrackets; i++) {
-    repairedString += ']';
-  }
+  // Use a more efficient approach to fix common JSON issues - combine multiple passes
+  const fixCommonIssues = () => {
+    // Fix property names and values in a more streamlined process
+    repairedString = repairedString
+      // Remove trailing commas - fixes common syntax errors
+      .replace(/,(\s*[}\]])/g, '$1')
+      // Simple whitespace normalization for better parsing
+      .replace(/\\n/g, ' ')
+      // Fix unquoted property names (handle edge cases better)
+      .replace(/([{,]\s*)([a-zA-Z0-9_$]+)(\s*:)/g, '$1"$2"$3')
+      // Convert single quotes to double quotes (more efficiently)
+      .replace(/'([^'\\]*(\\.[^'\\]*)*)'(\s*:)/g, '"$1"$3') // for keys
+      .replace(/:\s*'([^'\\]*(\\.[^'\\]*)*)'([,}]|$)/g, ':"$1"$3'); // for values
+  };
   
-  return repairedString.trim();
+  // First pass to fix common issues
+  fixCommonIssues();
+  
+  try {
+    // Quick test to see if our simple fixes worked
+    JSON.parse(repairedString);
+    return repairedString;
+  } catch (e) {
+    // If simple fixes didn't work, try more aggressive repair
+    
+    // Try again with more aggressive fixes for nested structures
+    fixCommonIssues();
+    
+    // Balance braces and brackets
+    const balanceChars = (openChar: string, closeChar: string) => {
+      const openCount = (repairedString.match(new RegExp(`\\${openChar}`, 'g')) || []).length;
+      const closeCount = (repairedString.match(new RegExp(`\\${closeChar}`, 'g')) || []).length;
+      
+      if (openCount > closeCount) {
+        repairedString += closeChar.repeat(openCount - closeCount);
+      }
+    };
+    
+    // Balance quotes - handles unterminated strings
+    const quoteCount = (repairedString.match(/"/g) || []).length;
+    if (quoteCount % 2 !== 0) {
+      repairedString += '"';
+    }
+    
+    // Balance braces and brackets
+    balanceChars('{', '}');
+    balanceChars('[', ']');
+    
+    return repairedString;
+  }
 };
 
 /**
@@ -70,10 +95,18 @@ export const extractJsonFromText = (text: string): string | null => {
  * @returns Parsed object or null if parsing failed
  */
 export const safeJsonParse = <T>(jsonString: string): T | null => {
+  if (!jsonString) return null;
+  
   try {
     return JSON.parse(jsonString) as T;
   } catch (error) {
-    console.error('Error parsing JSON:', error);
-    return null;
+    // Try to repair the JSON before giving up
+    try {
+      const repairedJson = repairJsonString(jsonString);
+      return JSON.parse(repairedJson) as T;
+    } catch (repairError) {
+      console.error('Error parsing JSON after repair attempt:', repairError);
+      return null;
+    }
   }
 }; 

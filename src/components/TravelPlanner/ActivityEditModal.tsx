@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { format, set } from "date-fns";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { format, set, isValid } from "date-fns";
 import { CalendarIcon, Clock, MapPin } from "lucide-react";
 
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -11,36 +11,44 @@ import { Calendar } from "../ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { cn } from "../../lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Activity, ActivityEditModalProps } from "../../types";
+import { convertTo24Hour } from "../../utils/timeUtils";
 
-// Define Activity interface for better type checking
-interface Activity {
-  id: string;
-  title: string;
-  description: string;
-  location: string;
-  imageUrl?: string;
-  time?: string;
-  date?: Date;
-  startTime?: string;
-  endTime?: string;
-  type?: string;
-  dayDate?: Date; // Add this to pass the selected day date back
-}
+// Helper function to convert 12-hour time to 24-hour time for input fields
+const convertTimeForInput = (timeStr: string): string => {
+  if (!timeStr) return "";
+  
+  console.log("Converting time:", timeStr);
 
-interface ActivityEditModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  activity: Activity;
-  onSave: (activity: Activity) => void;
-  isNewActivity?: boolean;
-  placeholders?: {
-    title?: string;
-    description?: string;
-    location?: string;
-  };
-}
+  // Try to match patterns like "1:00 PM", "01:00 PM", "1:00PM", etc.
+  const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)/i);
+  if (match) {
+    const [_, hours, minutes, period] = match;
+    let hoursNum = parseInt(hours, 10);
+    
+    // Convert hours to 24-hour format
+    if (period.toUpperCase() === 'PM' && hoursNum < 12) {
+      hoursNum += 12;
+    } else if (period.toUpperCase() === 'AM' && hoursNum === 12) {
+      hoursNum = 0;
+    }
+    
+    const result = `${hoursNum.toString().padStart(2, '0')}:${minutes}`;
+    console.log(`Converted ${timeStr} to ${result}`);
+    return result;
+  }
+  
+  // If the time is already in 24-hour format (HH:MM)
+  if (/^\d{1,2}:\d{2}$/.test(timeStr)) {
+    const [hours, minutes] = timeStr.split(':');
+    return `${hours.padStart(2, '0')}:${minutes}`;
+  }
+  
+  console.warn("Could not parse time format:", timeStr);
+  return "";
+};
 
-const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
+const ActivityEditModal: React.FC<ActivityEditModalProps> = React.memo(({
   open,
   onOpenChange,
   activity,
@@ -48,15 +56,31 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
   isNewActivity = false,
   placeholders = {},
 }) => {
+  // Default time in 24-hour format (13:00 = 1:00 PM)
+  const DEFAULT_TIME = "12:00";
+  
   // State for form fields
   const [title, setTitle] = useState(activity?.title || "");
   const [description, setDescription] = useState(activity?.description || "");
   const [location, setLocation] = useState(activity?.location || "");
   const [date, setDate] = useState<Date | undefined>(activity?.date);
-  const [startTime, setStartTime] = useState(activity?.startTime || "");
-  const [endTime, setEndTime] = useState(activity?.endTime || "");
+  const [startTime, setStartTime] = useState(DEFAULT_TIME);
+  const [endTime, setEndTime] = useState("");
   const [imageUrl, setImageUrl] = useState(activity?.imageUrl || "");
-  const [activityType, setActivityType] = useState(activity?.type || "Activity");
+  const [activityType, setActivityType] = useState(activity?.type || "activity");
+
+  // For debugging: Log activity when it changes
+  useEffect(() => {
+    if (activity) {
+      console.log("[ActivityEditModal] Activity passed to edit modal:", activity);
+    }
+  }, [activity]);
+
+  // Add debug logging for modal open state
+  useEffect(() => {
+    console.log("[ActivityEditModal] Modal open state changed:", open);
+    console.log("[ActivityEditModal] Is new activity:", isNewActivity);
+  }, [open, isNewActivity]);
 
   // Update state when activity prop changes
   useEffect(() => {
@@ -65,24 +89,100 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
       setDescription(activity.description || "");
       setLocation(activity.location || "");
       setDate(activity.date);
-      setStartTime(activity.startTime || "");
-      setEndTime(activity.endTime || "");
+      
+      // Log all time-related fields for debugging
+      console.log("Activity time field:", activity.time);
+      console.log("Time properties:", {
+        time: activity.time,
+        startTime: activity.startTime,
+        endTime: activity.endTime,
+        displayStartTime: activity.displayStartTime,
+        displayEndTime: activity.displayEndTime,
+      });
+      
+      // IMPORTANT: First try to use the visible time from the activity card
+      if (activity.time) {
+        // The activity.time field is what's displayed on the card
+        // Example: "2:00 PM" or "2:00 PM - 4:00 PM"
+        const timeString = activity.time;
+        console.log("Using activity.time:", timeString);
+        
+        // Check if it's a time range
+        if (timeString.includes(" - ")) {
+          // Split and convert both times
+          const [start, end] = timeString.split(" - ");
+          const startIn24hr = convertTimeForInput(start.trim());
+          const endIn24hr = convertTimeForInput(end.trim());
+          
+          console.log(`Setting time range: ${startIn24hr} - ${endIn24hr}`);
+          
+          if (startIn24hr) {
+            setStartTime(startIn24hr);
+          }
+          
+          if (endIn24hr) {
+            setEndTime(endIn24hr);
+          }
+        } else {
+          // Single time
+          const timeIn24hr = convertTimeForInput(timeString.trim());
+          
+          console.log(`Setting single time: ${timeIn24hr}`);
+          
+          if (timeIn24hr) {
+            setStartTime(timeIn24hr);
+          }
+        }
+      } else if (activity.startTime) {
+        // Direct startTime value (if available)
+        setStartTime(activity.startTime);
+        if (activity.endTime) {
+          setEndTime(activity.endTime);
+        }
+      }
+      
       setImageUrl(activity.imageUrl || "");
-      setActivityType(activity.type || "Activity");
+      setActivityType(activity.type || "activity");
     }
   }, [activity]);
 
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!open) {
+      // Small delay to ensure animation completes before resetting state
+      const timer = setTimeout(() => {
+        setTitle("");
+        setDescription("");
+        setLocation("");
+        setDate(undefined);
+        setStartTime(DEFAULT_TIME);
+        setEndTime("");
+        setImageUrl("");
+        setActivityType("activity");
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
   // Form validation
-  const isFormValid = () => {
-    return (
-      title.trim() !== "" && 
-      (startTime !== "" || (activity?.time && activity.time !== ""))
-    );
-  };
+  const isFormValid = useMemo(() => 
+    title.trim() !== "" && (startTime !== "" || (activity?.time && activity.time !== "")),
+    [title, startTime, activity?.time]
+  );
 
   // Handle save
-  const handleSave = () => {
-    if (isFormValid()) {
+  const handleSave = useCallback(() => {
+    if (isFormValid) {
+      console.log("[ActivityEditModal] Saving activity:", {
+        title,
+        description,
+        location,
+        startTime,
+        endTime,
+        type: activityType,
+        date
+      });
+      
       onSave({
         ...activity,
         title,
@@ -90,18 +190,75 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
         location,
         startTime,
         endTime,
-        imageUrl,
+        imageUrl: activity?.imageUrl || "",
         type: activityType,
-        dayDate: date // Pass the selected date back to parent component
+        dayDate: date, // Pass the selected date back to parent component
+        dayNumber: activity?.dayNumber // Preserve the day number if it exists
       });
     }
-  };
+  }, [isFormValid, onSave, activity, title, description, location, startTime, endTime, imageUrl, activityType, date]);
+
+  // Memoize handler functions
+  const handleCancel = useCallback(() => {
+    console.log("[ActivityEditModal] Cancel button clicked");
+    onOpenChange(false);
+  }, [onOpenChange]);
+
+  const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setTitle(e.target.value);
+  }, []);
+
+  const handleDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDescription(e.target.value);
+  }, []);
+
+  const handleLocationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocation(e.target.value);
+  }, []);
+
+  const handleStartTimeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setStartTime(e.target.value);
+  }, []);
+
+  const handleEndTimeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setEndTime(e.target.value);
+  }, []);
+
+  const handleActivityTypeChange = useCallback((value: string) => {
+    setActivityType(value);
+  }, []);
+
+  const handleDateChange = useCallback((selectedDate: Date | undefined) => {
+    setDate(selectedDate);
+  }, []);
+
+  // Memoize formatted date string for display
+  const formattedDate = useMemo(() => {
+    if (!date) {
+      return "Pick a date";
+    }
+    
+    try {
+      if (!isValid(date)) {
+        return "Pick a date";
+      }
+      return format(date, "EEEE, MM/dd/yyyy");
+    } catch (error) {
+      return "Pick a date";
+    }
+  }, [date]);
+
+  // Memoize dialog title
+  const dialogTitle = useMemo(() => 
+    isNewActivity ? "Add New Item" : "Edit Item",
+    [isNewActivity]
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>{isNewActivity ? "Add New Item" : "Edit Item"}</DialogTitle>
+          <DialogTitle>{dialogTitle}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-2">
           {/* Activity type selector */}
@@ -109,17 +266,20 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
             <Label htmlFor="activity-type" className="col-span-4 mb-1">
               Type
             </Label>
-            <Select value={activityType} onValueChange={setActivityType}>
-              <SelectTrigger id="activity-type">
+            <Select value={activityType} onValueChange={handleActivityTypeChange}>
+              <SelectTrigger id="activity-type" className="w-full min-w-[200px]">
                 <SelectValue placeholder="Select type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Activity">Activity</SelectItem>
-                <SelectItem value="Meal">Meal</SelectItem>
-                <SelectItem value="Hotel">Hotel</SelectItem>
-                <SelectItem value="Flight">Flight</SelectItem>
-                <SelectItem value="Transportation">Transportation</SelectItem>
-                <SelectItem value="Note">Note</SelectItem>
+                <SelectItem value="food">Food</SelectItem>
+                <SelectItem value="sightseeing">Sightseeing</SelectItem>
+                <SelectItem value="cultural">Cultural</SelectItem>
+                <SelectItem value="relaxation">Relaxation</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="activity">Activity</SelectItem>
+                <SelectItem value="accommodation">Accommodation</SelectItem>
+                <SelectItem value="transportation">Transportation</SelectItem>
+                <SelectItem value="note">Note</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -133,7 +293,7 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
               id="title"
               className="col-span-4"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={handleTitleChange}
               placeholder={placeholders.title || ""}
             />
           </div>
@@ -147,7 +307,7 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
               id="description"
               className="col-span-4"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={handleDescriptionChange}
               placeholder={placeholders.description || ""}
             />
           </div>
@@ -164,14 +324,14 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
               id="location"
               className="col-span-4"
               value={location}
-              onChange={(e) => setLocation(e.target.value)}
+              onChange={handleLocationChange}
               placeholder={placeholders.location || ""}
             />
           </div>
           
-          {/* Date & time selectors */}
+          {/* Date selector */}
           <div className="grid grid-cols-4 gap-2">
-            <Label className="col-span-4 mb-1">
+            <Label htmlFor="date" className="col-span-4 mb-1">
               <div className="flex items-center">
                 <CalendarIcon className="w-4 h-4 mr-1" />
                 <span>Date</span>
@@ -180,28 +340,29 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
             <Popover>
               <PopoverTrigger asChild>
                 <Button
+                  id="date"
                   variant={"outline"}
                   className={cn(
-                    "col-span-4 justify-start text-left font-normal h-10",
-                    !date && "text-slate-400"
+                    "col-span-4 justify-start text-left font-normal",
+                    !date && "text-muted-foreground"
                   )}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {date ? format(date, "PPP") : <span>Pick a date</span>}
+                  {formattedDate}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
                 <Calendar
                   mode="single"
                   selected={date}
-                  onSelect={setDate}
+                  onSelect={handleDateChange}
                   initialFocus
                 />
               </PopoverContent>
             </Popover>
           </div>
           
-          {/* Time inputs */}
+          {/* Time selectors */}
           <div className="grid grid-cols-4 gap-2">
             <Label className="col-span-4 mb-1">
               <div className="flex items-center">
@@ -217,7 +378,7 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
                 id="start-time"
                 type="time"
                 value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                onChange={handleStartTimeChange}
               />
             </div>
             <div className="col-span-2">
@@ -228,36 +389,22 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
                 id="end-time"
                 type="time"
                 value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
+                onChange={handleEndTimeChange}
               />
             </div>
-          </div>
-          
-          {/* Image URL input */}
-          <div className="grid grid-cols-4 gap-2">
-            <Label htmlFor="image-url" className="col-span-4 mb-1">
-              Image URL (optional)
-            </Label>
-            <Input
-              id="image-url"
-              className="col-span-4"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="https://..."
-            />
           </div>
         </div>
         <DialogFooter className="mt-4">
           <Button 
             variant="secondary" 
-            onClick={() => onOpenChange(false)}
+            onClick={handleCancel}
             className="mr-2"
           >
             Cancel
           </Button>
           <Button 
             onClick={handleSave} 
-            disabled={!isFormValid()}
+            disabled={!isFormValid}
           >
             Save
           </Button>
@@ -265,6 +412,8 @@ const ActivityEditModal: React.FC<ActivityEditModalProps> = ({
       </DialogContent>
     </Dialog>
   );
-};
+});
+
+ActivityEditModal.displayName = 'ActivityEditModal';
 
 export default ActivityEditModal;

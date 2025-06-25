@@ -278,6 +278,99 @@ export const UserPreferencesService = {
       console.error('Error loading user preferences synchronously:', error);
       return null;
     }
+  },
+
+  /**
+   * Update preferences from conversation inferences
+   * @param userId User ID
+   * @param inferredPreferences Preferences inferred from conversation
+   * @returns Updated preferences
+   */
+  async updateFromConversationInferences(userId: string, inferredPreferences: any): Promise<UserPreferences> {
+    try {
+      // First get current preferences
+      const currentPreferences = await this.loadPreferences();
+      
+      // Prepare merged preferences
+      const mergedPreferences: UserPreferences = {
+        ...currentPreferences,
+        // Only update fields that were inferred and not empty
+        ...(inferredPreferences.travelStyle && { travelStyle: inferredPreferences.travelStyle }),
+        
+        // Handle array fields carefully, merging them without duplicates
+        interests: [
+          ...currentPreferences.interests || [],
+          ...(inferredPreferences.interests?.map((interest: string) => ({
+            id: interest.toLowerCase().replace(/\s/g, ''),
+            label: interest
+          })) || [])
+        ].filter((item, index, self) => 
+          // Remove duplicates by id
+          index === self.findIndex(t => t.id === item.id)
+        ),
+        
+        dietaryPreferences: [
+          ...currentPreferences.dietaryPreferences || [],
+          ...(inferredPreferences.dietaryPreferences?.map((pref: string) => ({
+            id: pref.toLowerCase().replace(/\s/g, ''),
+            label: pref
+          })) || [])
+        ].filter((item, index, self) => 
+          index === self.findIndex(t => t.id === item.id)
+        ),
+        
+        ...(inferredPreferences.budget && { budget: inferredPreferences.budget }),
+        ...(inferredPreferences.travelGroup && { travelGroup: inferredPreferences.travelGroup }),
+        ...(inferredPreferences.transportation && { transportMode: inferredPreferences.transportation }),
+        ...(inferredPreferences.pace && { pace: inferredPreferences.pace })
+      };
+      
+      // Save to database
+      await this.savePreferences(mergedPreferences);
+      
+      // Also update local storage
+      this.savePreferences(mergedPreferences);
+      
+      return mergedPreferences;
+    } catch (error) {
+      console.error('Error updating preferences from conversation:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Get inferred preferences from conversation
+   * @param userId User ID
+   * @returns Object with inferred preferences flag and data
+   */
+  async getInferredPreferences(userId: string): Promise<{ hasInferred: boolean, data: any }> {
+    try {
+      const key = `${userId}_inferred_preferences`;
+      const stored = localStorage.getItem(key);
+      
+      if (stored) {
+        return { hasInferred: true, data: JSON.parse(stored) };
+      }
+      
+      return { hasInferred: false, data: {} };
+    } catch (error) {
+      console.error('Error getting inferred preferences:', error);
+      return { hasInferred: false, data: {} };
+    }
+  },
+  
+  /**
+   * Save inferred preferences from conversation
+   * @param userId User ID
+   * @param preferences Inferred preferences
+   */
+  saveInferredPreferences(userId: string, preferences: any): void {
+    try {
+      const key = `${userId}_inferred_preferences`;
+      localStorage.setItem(key, JSON.stringify(preferences));
+    } catch (error) {
+      console.error('Error saving inferred preferences:', error);
+    }
   }
 };
 

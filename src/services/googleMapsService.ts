@@ -1,6 +1,6 @@
 // Google Maps API service
 import { ApiCache } from '../utils/cacheUtils';
-import { fetchWithRetry, ApiError } from '../utils/apiUtils';
+import { fetchWithRetry, ApiError, fetchWithCache, googleMapsCache } from '../utils/apiUtils';
 
 const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
@@ -11,17 +11,33 @@ if (!apiKey) {
 // Cache implementation using shared ApiCache utility
 const mapsCache = new ApiCache<any>('GoogleMaps', 24 * 60 * 60 * 1000); // 24 hours cache
 
-// Helper function to use a proxy for API requests to avoid CORS issues
-const fetchWithProxy = async (url: string, options: RequestInit = {}) => {
+// Helper function to use a proxy for API requests to avoid CORS issues and utilize caching
+const fetchWithProxyAndCache = async <T>(url: string, options: RequestInit = {}, cacheKey?: string): Promise<T> => {
   try {
-    // First try direct API call
-    return await fetchWithRetry(url, options);
+    // Try with cache first
+    return await fetchWithCache<T>(
+      url,
+      options,
+      {
+        useCache: true,
+        cacheKey: cacheKey || url,
+        cache: googleMapsCache
+      }
+    );
   } catch (error) {
     // If it fails due to CORS, try with proxy
     if (error instanceof ApiError && error.isNetworkError) {
       console.warn('Direct API call failed, likely due to CORS. Trying with proxy...');
       const corsProxyUrl = 'https://corsproxy.io/?';
-      return fetchWithRetry(corsProxyUrl + encodeURIComponent(url), options);
+      return await fetchWithCache<T>(
+        corsProxyUrl + encodeURIComponent(url),
+        options,
+        {
+          useCache: true,
+          cacheKey: cacheKey || url,
+          cache: googleMapsCache
+        }
+      );
     }
     throw error;
   }
@@ -68,62 +84,36 @@ export const googleMapsService = {
     radius: number = 1500,
     keyword?: string
   ): Promise<PlaceResult[]> {
-    try {
-      // Create a cache key based on the search parameters
-      const cacheKey = JSON.stringify({
-        method: 'searchNearbyPlaces',
-        location,
-        type,
-        radius,
-        keyword
-      });
-      
-      // Check cache first
-      const cachedResults = mapsCache.get(cacheKey);
-      if (cachedResults) {
-        console.log('Using cached Google Maps places results');
-        return cachedResults;
-      }
+    if (!apiKey) {
+      console.warn('Using mock places because API key is missing');
+      return getMockPlaces(type, keyword);
+    }
 
+    try {
       const params = new URLSearchParams({
         location: `${location.lat},${location.lng}`,
         radius: radius.toString(),
         type,
         key: apiKey,
-        fields: 'place_id,name,formatted_address,geometry,rating,user_ratings_total,photos,opening_hours,price_level,types,vicinity'
       });
 
       if (keyword) {
         params.append('keyword', keyword);
       }
 
-      // Use mock data for development if API key is missing or for testing
-      if (!apiKey) {
-        console.warn('Using mock data for places search');
+      const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?${params}`;
+      const cacheKey = `places_${type}_${location.lat}_${location.lng}_${radius}_${keyword || ''}`;
+      
+      const response = await fetchWithProxyAndCache<PlacesSearchResponse>(url, {}, cacheKey);
+
+      if (response.status !== 'OK') {
+        console.error('Google Places API error:', response.status);
         return getMockPlaces(type, keyword);
       }
 
-      const response = await fetchWithProxy(
-        `https://maps.googleapis.com/maps/api/place/nearbysearch/json?${params.toString()}`
-      );
-
-      const data: PlacesSearchResponse = await response.json();
-
-      if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-        throw new ApiError(`Google Maps API error: ${data.status}`, {
-          status: data.status === 'OVER_QUERY_LIMIT' ? 429 : 400
-        });
-      }
-
-      const results = data.results || [];
-
-      // Cache successful results
-      mapsCache.set(cacheKey, results);
-      
-      return results;
+      return response.results;
     } catch (error) {
-      console.error('Error searching nearby places:', error);
-      // Return mock data as fallback in case of API errors
+      console.error('Error fetching nearby places:', error);
       return getMockPlaces(type, keyword);
     }
   },
@@ -132,31 +122,32 @@ export const googleMapsService = {
    * Get details for a specific place
    */
   async getPlaceDetails(placeId: string): Promise<any> {
+    if (!apiKey) {
+      console.warn('Cannot get place details without API key');
+      return null;
+    }
+
     try {
       const params = new URLSearchParams({
         place_id: placeId,
-        fields: 'name,formatted_address,geometry,photos,rating,opening_hours,price_level,website,formatted_phone_number,reviews',
+        fields: 'name,formatted_address,geometry,rating,photos,opening_hours,price_level,types,website,formatted_phone_number,reviews',
         key: apiKey,
       });
 
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`
-      );
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?${params}`;
+      const cacheKey = `place_details_${placeId}`;
+      
+      const response = await fetchWithProxyAndCache<any>(url, {}, cacheKey);
 
-      if (!response.ok) {
-        throw new Error(`Google Maps API error: ${response.statusText}`);
+      if (response.status !== 'OK') {
+        console.error('Google Place Details API error:', response.status);
+        return null;
       }
 
-      const data = await response.json();
-
-      if (data.status !== 'OK') {
-        throw new Error(`Google Maps API error: ${data.status}`);
-      }
-
-      return data.result;
+      return response.result;
     } catch (error) {
-      console.error('Error getting place details:', error);
-      throw error;
+      console.error('Error fetching place details:', error);
+      return null;
     }
   },
 
@@ -234,7 +225,7 @@ export const googleMapsService = {
         return getMockCoordinates(address);
       }
 
-      const response = await fetchWithProxy(
+      const response = await fetchWithProxyAndCache<any>(
         `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`
       );
 

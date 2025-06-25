@@ -427,7 +427,12 @@ export const openaiService = {
       }));
       
       // Get tours if attractions are available
-      let toursData = [];
+      let toursData: Array<{
+        name: string;
+        description: string;
+        rating: string;
+        price: string;
+      }> = [];
       if (attractions.length > 0) {
         const tours = await tripAdvisorService.searchTours(attractions[0].location_id);
         toursData = tours.slice(0, 3).map(tour => ({

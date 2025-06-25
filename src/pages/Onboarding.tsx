@@ -108,8 +108,55 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     dreamDestinations: ''
   });
   const [loading, setLoading] = useState(false);
+  const [loadingPreferences, setLoadingPreferences] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Load existing preferences when component mounts
+  useEffect(() => {
+    const loadExistingPreferences = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (user) {
+          const { data: existingPrefs, error } = await supabase
+            .from('user_preferences')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+          
+          if (existingPrefs && !error) {
+            // Convert database format to component format
+            // Map budget description back to budget ID for proper selection
+            let budgetValue = existingPrefs.budget || '';
+            if (budgetValue) {
+              const budgetOption = BUDGET_OPTIONS.find(opt => opt.description === budgetValue);
+              if (budgetOption) {
+                budgetValue = budgetOption.description; // Keep description for proper matching
+              }
+            }
+            
+            setPreferences({
+              name: existingPrefs.name || '',
+              travelStyle: existingPrefs.travel_style || [],
+              activities: existingPrefs.activities || [],
+              preferences: existingPrefs.preferences || [],
+              budget: budgetValue,
+              dreamDestinations: existingPrefs.dream_destinations || ''
+            });
+            console.log("Loaded existing preferences:", existingPrefs);
+          }
+        }
+      } catch (error) {
+        console.error("Error loading preferences:", error);
+        // Continue with empty preferences if loading fails
+      } finally {
+        setLoadingPreferences(false);
+      }
+    };
+
+    loadExistingPreferences();
+  }, []);
 
   // Generic handler for updating array-based preferences
   const handleArrayPreferenceChange = (field: keyof UserPreferences, id: string) => {
@@ -380,6 +427,17 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         return null;
     }
   };
+
+  // Show loading while fetching existing preferences
+  if (loadingPreferences) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 text-center">
+          <div className="animate-pulse text-gray-600">Loading your preferences...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

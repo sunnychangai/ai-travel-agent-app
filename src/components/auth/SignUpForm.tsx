@@ -6,21 +6,31 @@ export const SignUpForm: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const { signUp, loading } = useAuth();
+  const [success, setSuccess] = useState('');
+  const { signUp, isLoading } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
     
-    try {
-      await signUp(email, password);
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign up');
+    // Extract name from email (before @ symbol)
+    const name = email.split('@')[0];
+    
+    const result = await signUp(email, password, name);
+    if (result.success) {
+      setSuccess(result.message);
+      // Clear form on successful signup
+      setEmail('');
+      setPassword('');
+      setConfirmPassword('');
+    } else {
+      setError(result.message);
     }
   };
 
@@ -76,12 +86,16 @@ export const SignUpForm: React.FC = () => {
           <div className="text-red-500 text-sm">{error}</div>
         )}
         
+        {success && (
+          <div className="text-green-500 text-sm">{success}</div>
+        )}
+        
         <button
           type="submit"
-          disabled={loading}
+          disabled={isLoading}
           className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
         >
-          {loading ? 'Creating Account...' : 'Sign Up'}
+          {isLoading ? 'Creating Account...' : 'Sign Up'}
         </button>
       </form>
     </div>

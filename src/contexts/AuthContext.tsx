@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { authService } from '../services/authService';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
-// Simple user type
+// User type based on Supabase user
 interface User {
   id: string;
   email: string;
@@ -33,93 +35,116 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+// Convert Supabase user to our User type
+const mapSupabaseUser = (supabaseUser: SupabaseUser): User => ({
+  id: supabaseUser.id,
+  email: supabaseUser.email || '',
+  name: supabaseUser.user_metadata?.name || 
+        supabaseUser.user_metadata?.full_name || 
+        supabaseUser.email?.split('@')[0] || 
+        'User',
+});
+
 // Provider component
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Load user from localStorage on initial render
+  // Load user and set up auth state listener on initial render
   useEffect(() => {
-    const loadUser = () => {
+    // Get current session
+    const initializeAuth = async () => {
       try {
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          setUser(JSON.parse(storedUser));
+        const session = await authService.getSession();
+        if (session?.user) {
+          setUser(mapSupabaseUser(session.user));
         }
       } catch (error) {
-        console.error('Error loading user from localStorage:', error);
+        console.error('Error getting initial session:', error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadUser();
+    initializeAuth();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = authService.onAuthStateChange((event, session) => {
+      console.log('Auth state changed:', event);
+      
+      if (session?.user) {
+        setUser(mapSupabaseUser(session.user));
+      } else {
+        setUser(null);
+      }
+      
+      setIsLoading(false);
+    });
+
+    // Cleanup subscription
+    return () => subscription?.unsubscribe();
   }, []);
 
-  // Sign in user (mock implementation)
+  // Sign in user using Supabase
   const signIn = async (email: string, password: string): Promise<{ success: boolean; message: string }> => {
     try {
       setIsLoading(true);
 
-      // In a real app, you would validate against a backend
-      // This is a simplified mock that accepts any email/password
-      if (email && password) {
-        const user: User = {
-          id: Math.random().toString(36).substring(2, 15),
-          email,
-          name: email.split('@')[0],
-        };
-
-        setUser(user);
-        localStorage.setItem('user', JSON.stringify(user));
-
+      const { user: supabaseUser } = await authService.signIn(email, password);
+      
+      if (supabaseUser) {
+        setUser(mapSupabaseUser(supabaseUser));
         return { success: true, message: 'Signed in successfully' };
       }
 
-      return { success: false, message: 'Invalid email or password' };
-    } catch (error) {
+      return { success: false, message: 'Sign in failed' };
+    } catch (error: any) {
       console.error('Error signing in:', error);
-      return { success: false, message: 'Failed to sign in' };
+      return { 
+        success: false, 
+        message: error.message || 'Failed to sign in. Please check your credentials.' 
+      };
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Sign up user (mock implementation)
+  // Sign up user using Supabase
   const signUp = async (email: string, password: string, name: string): Promise<{ success: boolean; message: string }> => {
     try {
       setIsLoading(true);
 
-      // In a real app, you would create a user in a database
-      // This is a simplified mock that accepts any valid input
-      if (email && password && name) {
-        const user: User = {
-          id: Math.random().toString(36).substring(2, 15),
-          email,
-          name,
+      const { user: supabaseUser } = await authService.signUp(email, password);
+      
+      if (supabaseUser) {
+        // Note: For email confirmation, user might not be immediately available
+        // The auth state listener will handle setting the user when confirmed
+        return { 
+          success: true, 
+          message: supabaseUser.email_confirmed_at 
+            ? 'Account created successfully' 
+            : 'Please check your email to confirm your account' 
         };
-
-        setUser(user);
-        localStorage.setItem('user', JSON.stringify(user));
-
-        return { success: true, message: 'Account created successfully' };
       }
 
-      return { success: false, message: 'Invalid input' };
-    } catch (error) {
+      return { success: false, message: 'Account creation failed' };
+    } catch (error: any) {
       console.error('Error signing up:', error);
-      return { success: false, message: 'Failed to create account' };
+      return { 
+        success: false, 
+        message: error.message || 'Failed to create account' 
+      };
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Sign out user
+  // Sign out user using Supabase
   const signOut = async (): Promise<void> => {
     try {
       setIsLoading(true);
+      await authService.signOut();
       setUser(null);
-      localStorage.removeItem('user');
     } catch (error) {
       console.error('Error signing out:', error);
     } finally {

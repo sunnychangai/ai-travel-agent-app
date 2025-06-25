@@ -1,126 +1,31 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { Edit2, Trash2, Star } from "lucide-react";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import ActivityCard from "./ActivityCard";
 import { timeToMinutes, sortActivitiesByTime } from "../../utils/timeUtils";
+import { formatDate } from "../../utils/dateUtils";
+import { ensureActivityId, getActivityIdSafely, getActivityTypeStyles, determineActivityType } from "../../utils/activityUtils";
 import useVirtualizedList from "../../hooks/useVirtualizedList";
 import { Activity, ItineraryDay } from '../../types';
 import { format, isValid, parseISO } from 'date-fns';
 
-// Function to format date with validation
-const formatDate = (dateString: string): string => {
-  try {
-    const date = parseISO(dateString);
-    if (!isValid(date)) {
-      console.error("Invalid date:", dateString);
-      return "Invalid date";
-    }
-    const weekday = format(date, 'EEEE');
-    const monthDay = format(date, 'MMMM d');
-    return `${weekday}, ${monthDay}`;
-  } catch (error) {
-    console.error("Error formatting date:", error);
-    return "Invalid date";
-  }
-};
-
-// Function to determine activity type based on title and description
-const determineActivityType = (title: string, description: string): string => {
-  const combinedText = `${title} ${description}`.toLowerCase();
-  
-  // Transportation keywords
-  if (
-    combinedText.includes('airport') ||
-    combinedText.includes('train') ||
-    combinedText.includes('bus') ||
-    combinedText.includes('taxi') ||
-    combinedText.includes('transfer') ||
-    combinedText.includes('flight') ||
-    combinedText.includes('arrival') ||
-    combinedText.includes('departure') ||
-    combinedText.includes('transit') ||
-    combinedText.includes('transportation')
-  ) {
-    return 'Transportation';
-  }
-  
-  // Accommodation keywords
-  if (
-    combinedText.includes('hotel') ||
-    combinedText.includes('check-in') ||
-    combinedText.includes('check in') ||
-    combinedText.includes('check-out') ||
-    combinedText.includes('check out') ||
-    combinedText.includes('accommodation') ||
-    combinedText.includes('stay') ||
-    combinedText.includes('lodge') ||
-    combinedText.includes('hostel') ||
-    combinedText.includes('apartment') ||
-    combinedText.includes('airbnb')
-  ) {
-    return 'Accommodation';
-  }
-  
-  // Food keywords
-  if (
-    combinedText.includes('lunch') ||
-    combinedText.includes('dinner') ||
-    combinedText.includes('breakfast') ||
-    combinedText.includes('brunch') ||
-    combinedText.includes('meal') ||
-    combinedText.includes('restaurant') ||
-    combinedText.includes('café') ||
-    combinedText.includes('cafe') ||
-    combinedText.includes('food') ||
-    combinedText.includes('eat') ||
-    combinedText.includes('dining')
-  ) {
-    return 'Food';
-  }
-  
-  // Default to Activity
-  return 'Activity';
-};
-
-// Get background color based on activity type
-const getTypeBackground = (type: string) => {
-  switch (type?.toLowerCase()) {
-    case 'transportation':
-      return 'bg-blue-100 text-blue-700 font-semibold border border-blue-300';
-    case 'accommodation':
-      return 'bg-purple-100 text-purple-700 font-semibold border border-purple-300';
-    case 'food':
-      return 'bg-orange-100 text-orange-700 font-semibold border border-orange-300';
-    case 'activity':
-      return 'bg-green-100 text-green-700 font-semibold border border-green-300';
-    default:
-      return 'bg-slate-100 text-slate-700 font-semibold border border-slate-300';
-  }
-};
-
 interface ItineraryDayListProps {
   days: Array<{
-    date: string;
     dayNumber: number;
+    date: string;
     activities: Activity[];
   }>;
   onEditActivity?: (dayNumber: number, activityId: string) => void;
   onDeleteActivity?: (dayNumber: number, activityId: string) => void;
   onEditDay?: (dayNumber: number) => void;
   isReadOnly?: boolean;
+  setCurrentActivity?: (activity: Activity | null) => void;
+  setEditModalOpen?: (open: boolean) => void;
 }
 
 const ACTIVITY_CARD_HEIGHT = 180; // Approximate height of activity card in pixels
 const DAY_HEADER_HEIGHT = 60; // Approximate height of day header in pixels
-
-// Ensure activity has an ID when passing to ActivityCard
-const ensureActivityId = (activity: Activity): Activity & { id: string } => {
-  return {
-    ...activity,
-    id: activity.id || `activity-${Date.now()}-${Math.random()}`
-  };
-};
 
 const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
   days,
@@ -128,7 +33,15 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
   onDeleteActivity,
   onEditDay,
   isReadOnly = false,
+  setCurrentActivity,
+  setEditModalOpen
 }) => {
+  // Memoize the days with activities calculation
+  const daysWithActivities = useMemo(() => 
+    days.filter(day => day.activities.length > 0),
+    [days]
+  );
+
   // Prepare flattened list for virtualization when in "all" mode
   const flattenedItems = useMemo(() => {
     // Only perform flattening if we have multiple days in "all" mode
@@ -144,7 +57,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
       dayIndex: number;
     }> = [];
 
-    days.forEach((day, dayIndex) => {
+    daysWithActivities.forEach((day, dayIndex) => {
       // Add header item
       items.push({
         type: 'header',
@@ -165,10 +78,13 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
     });
 
     return items;
-  }, [days]);
+  }, [days, daysWithActivities]);
 
   // Use virtualized list for "all" mode with many items
-  const useVirtualization = flattenedItems && flattenedItems.length > 20;
+  const useVirtualization = useMemo(() => 
+    flattenedItems && flattenedItems.length > 20,
+    [flattenedItems]
+  );
 
   const {
     virtualItems,
@@ -182,6 +98,102 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
       })
     : { virtualItems: null, totalHeight: 0, scrollRef: null, handleScroll: null };
 
+  // Memoize handler functions
+  const handleEditActivity = useCallback((dayNumber: number, id: string) => {
+    onEditActivity?.(dayNumber, id);
+  }, [onEditActivity]);
+
+  const handleDeleteActivity = useCallback((dayNumber: number, id: string) => {
+    onDeleteActivity?.(dayNumber, id);
+  }, [onDeleteActivity]);
+
+  const handleEditDay = useCallback((dayNumber: number) => {
+    onEditDay?.(dayNumber);
+  }, [onEditDay]);
+
+  // Memoize the render function for a header item
+  const renderHeader = useCallback((
+    dayNumber: number, 
+    date: string | undefined, 
+    dayIndex: number, 
+    style?: React.CSSProperties
+  ) => {
+    return (
+      <div
+        key={`day-header-${dayNumber}`}
+        className={`flex justify-between items-center mb-4 pr-0 pl-4 ${
+          dayIndex > 0 ? "pt-6 mt-6 relative" : "pt-3"
+        }`}
+        style={style}
+      >
+        {dayIndex > 0 && (
+          <div className="absolute top-[-4px] left-8 right-8 h-px bg-slate-200"></div>
+        )}
+        <div className="flex flex-col items-start">
+          <h2 className="text-lg font-semibold pb-1">
+            {dayNumber ? `Day ${dayNumber}: ` : ""}
+            {formatDate(date!, 'weekday')}
+          </h2>
+        </div>
+        <Button 
+          variant="outline"
+          className="h-8 px-3 border border-green-300 shadow-none bg-green-50 hover:bg-green-100 hover:border-green-300 focus:ring-green-500 transition-colors text-green-600 text-sm rounded"
+          onClick={() => {
+            // First try to use the direct modal approach if props are provided
+            if (setCurrentActivity && setEditModalOpen && date) {
+              // Get the date for this day
+              const defaultDate = isValid(parseISO(date)) ? parseISO(date) : new Date();
+              
+              // Set minimal activity data needed for the modal
+              setCurrentActivity({
+                id: "", // Empty ID indicates a new activity
+                title: "",
+                description: "",
+                location: "",
+                time: "12:00 PM",
+                type: "Activity",
+                imageUrl: "",
+                dayDate: defaultDate,
+                dayNumber: dayNumber
+              });
+              
+              // Open the modal directly
+              setEditModalOpen(true);
+            } else if (handleEditDay) {
+              // Fall back to the original approach if direct modal props aren't available
+              handleEditDay(dayNumber);
+            }
+          }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Item
+        </Button>
+      </div>
+    );
+  }, [handleEditDay, setCurrentActivity, setEditModalOpen]);
+
+  // Memoize the render function for an activity item
+  const renderActivityCard = useCallback((
+    activity: Activity, 
+    dayNumber: number, 
+    style?: React.CSSProperties
+  ) => {
+    return (
+      <div
+        key={getActivityIdSafely(activity.id)}
+        className="space-y-4 px-3 pr-0"
+        style={style}
+      >
+        <ActivityCard
+          activity={ensureActivityId(activity)}
+          onEdit={(id) => handleEditActivity(dayNumber, id)}
+          onDelete={(id) => handleDeleteActivity(dayNumber, id)}
+          className="mb-4"
+        />
+      </div>
+    );
+  }, [handleEditActivity, handleDeleteActivity]);
+
   // Render using virtualization for "all" view with many items
   if (useVirtualization && virtualItems) {
     return (
@@ -194,55 +206,27 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
         <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
           {virtualItems.map(virtualItem => {
             const item = virtualItem.item;
+            const style = {
+              position: 'absolute' as const,
+              top: 0,
+              transform: `translateY(${virtualItem.offsetTop}px)`,
+              width: '100%'
+            };
             
             if (item.type === 'header') {
               // Render day header
-              return (
-                <div
-                  key={`day-header-${item.dayNumber}`}
-                  className={`flex justify-between items-center mb-4 pr-0 pl-4 ${
-                    item.dayIndex > 0 ? "pt-6 mt-6 border-t border-gray-200" : "pt-2"
-                  }`}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    transform: `translateY(${virtualItem.offsetTop}px)`,
-                    width: '100%'
-                  }}
-                >
-                  <h2 className="text-xl font-medium text-slate-700">
-                    {formatDate(item.date!)}
-                  </h2>
-                  <Button 
-                    variant="outline"
-                    className="h-8 px-3 border border-green-300 shadow-none bg-green-50 hover:bg-green-100 hover:border-green-300 focus:ring-green-500 transition-colors text-green-600 text-sm rounded"
-                    onClick={() => onEditDay?.(item.dayNumber)}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    Add Item
-                  </Button>
-                </div>
+              return renderHeader(
+                item.dayNumber, 
+                item.date, 
+                item.dayIndex, 
+                style
               );
             } else {
               // Render activity card
-              const activity = item.activity!;
-              return (
-                <div
-                  key={activity.id || `activity-${activity.title}-${Math.random()}`}
-                  className="space-y-4 px-3 pr-0"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    transform: `translateY(${virtualItem.offsetTop}px)`,
-                    width: '100%'
-                  }}
-                >
-                  <ActivityCard
-                    activity={ensureActivityId(activity)}
-                    onEdit={(id) => onEditActivity?.(item.dayNumber, id)}
-                    onDelete={(id) => onDeleteActivity?.(item.dayNumber, id)}
-                  />
-                </div>
+              return renderActivityCard(
+                item.activity!, 
+                item.dayNumber, 
+                style
               );
             }
           })}
@@ -252,38 +236,39 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
   }
 
   // Use the original non-virtualized rendering for day view or smaller lists
+  const dayListContainerClass = useMemo(() => 
+    `space-y-8 ${days.length > 1 ? "pb-8 mt-1" : ""}`,
+    [days.length]
+  );
+
   return (
-    <div className={`space-y-8 ${days.length > 1 ? "pb-8 mt-1" : ""}`}>
-      {days.map((day, index) => (
-        <div key={day.dayNumber} className={`${index === 0 && days.length > 1 ? "pt-2" : ""}`}>
-          {/* Show day header in "all" view mode */}
-          <div className="flex justify-between items-center mb-4 pr-0 pl-4">
-            <h2 className="text-xl font-medium text-slate-700">
-              {formatDate(day.date)}
-            </h2>
-            <Button 
-              variant="outline"
-              className="h-8 px-3 border border-green-300 shadow-none bg-green-50 hover:bg-green-100 hover:border-green-300 focus:ring-green-500 transition-colors text-green-600 text-sm rounded"
-              onClick={() => onEditDay?.(day.dayNumber)}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 mr-1.5 text-green-600"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-              Add Item
-            </Button>
+    <div className={dayListContainerClass}>
+      {daysWithActivities.map((day, index) => {
+        const sortedActivities = useMemo(() => 
+          sortActivitiesByTime(day.activities),
+          [day.activities]
+        );
+
+        return (
+          <div key={day.dayNumber} className={`${index === 0 && days.length > 1 ? "" : ""}`}>
+            {/* Show day header in "all" view mode */}
+            {renderHeader(day.dayNumber, day.date, index)}
+            
+            {/* Sort activities by time before rendering */}
+            <div className="space-y-4 px-3 pr-0">
+              {sortedActivities.map((activity) => (
+                <ActivityCard
+                  key={getActivityIdSafely(activity.id)}
+                  activity={ensureActivityId(activity)}
+                  onEdit={(id) => handleEditActivity(day.dayNumber, id)}
+                  onDelete={(id) => handleDeleteActivity(day.dayNumber, id)}
+                  className="mb-4"
+                />
+              ))}
+            </div>
           </div>
-          
-          {/* Sort activities by time before rendering */}
-          <div className="space-y-4 px-3 pr-0">
-            {sortActivitiesByTime(day.activities).map((activity) => (
-              <ActivityCard
-                key={activity.id || `activity-${activity.title}-${activity.time}`}
-                activity={ensureActivityId(activity)}
-                onEdit={(id) => onEditActivity?.(day.dayNumber, id)}
-                onDelete={(id) => onDeleteActivity?.(day.dayNumber, id)}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 });

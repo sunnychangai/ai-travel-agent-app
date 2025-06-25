@@ -1,23 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { enhancedOpenAIService } from '../services/enhancedOpenAIService';
 import useApiWithAbort from './useApiWithAbort';
+import { Activity } from '../types';
+import { safeParseDate } from '../utils/dateUtils';
 
 // Define proper types for the API response
-interface Activity {
-  id?: string;
-  title: string;
-  description?: string;
-  location?: string;
-  time?: string;
-  category?: string;
-  subcategory?: string;
-  duration?: string;
-  price?: string;
-  notes?: string;
-  imageUrl?: string;
-  dayNumber?: number;
-}
-
 interface Day {
   dayNumber: number;
   date: string;
@@ -67,7 +54,7 @@ const getDefaultImage = (type?: string): string => {
       return 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600&q=80';
     case 'museum':
     case 'culture':
-      return 'https://images.unsplash.com/photo-1566054757965-8b4543c39de4?w=600&q=80';
+      return 'https://images.unsplash.com/photo-1566054757965-8b4543c3b185?w=600&q=80';
     case 'nature':
       return 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=600&q=80';
     case 'landmark':
@@ -134,7 +121,24 @@ export function useEnhancedOpenAI() {
   /**
    * Internal function to try generating an itinerary
    */
-  const tryGenerateItinerary = useCallback(async (params, numberOfDays) => {
+  const tryGenerateItinerary = useCallback(async (
+    params: {
+      destination: string;
+      startDate: string;
+      endDate: string;
+      interests: string[];
+      preferences: {
+        travelStyle: string;
+        travelGroup: string;
+        budget: string;
+        transportMode: string;
+        dietaryPreferences: string[];
+        pace: 'slow' | 'moderate' | 'fast';
+      };
+      onProgress?: (progress: number, step: string) => void;
+    }, 
+    numberOfDays: number
+  ) => {
     // Phase 1: Start generation (30%)
     updateProgress(5, 'Planning your perfect trip...');
     if (params.onProgress) params.onProgress(5, 'Planning your perfect trip...');
@@ -164,8 +168,8 @@ export function useEnhancedOpenAI() {
     if (cancelTokenRef.current) return null;
     
     // Phase 2: Enhance the activity descriptions (90%)
-    const activities = result.days.flatMap(day => 
-      day.activities.map(activity => ({
+    const activities = (result as ItineraryResult).days.flatMap((day: Day) => 
+      day.activities.map((activity: Activity) => ({
         id: activity.id,
         title: activity.title,
         description: activity.description || '',
@@ -200,10 +204,10 @@ export function useEnhancedOpenAI() {
     
     // Update activities in the result
     const enhancedResult = {
-      ...result,
-      days: result.days.map(day => ({
+      ...(result as ItineraryResult),
+      days: (result as ItineraryResult).days.map((day: Day) => ({
         ...day,
-        activities: day.activities.map(activity => {
+        activities: day.activities.map((activity: Activity) => {
           const enhanced = enhancedActivityMap.get(activity.id);
           if (enhanced) {
             return {
@@ -270,79 +274,32 @@ export function useEnhancedOpenAI() {
         console.log('Itinerary dates:', params.startDate, 'to', params.endDate);
 
         // Validate required parameters
-        if (!params.destination) {
+        if (!params.destination || !params.startDate || !params.endDate || !params.interests.length) {
           setProgressState(prev => ({
             ...prev,
             status: 'error',
             progress: 0,
-            step: 'Destination is required',
-            error: new Error('Destination is required'),
+            step: 'Missing required parameters for itinerary generation',
+            error: new Error('Missing required parameters for itinerary generation'),
           }));
-          console.error('Cannot generate itinerary: Destination is required');
+          console.error('Cannot generate itinerary: Missing required parameters');
           return null;
         }
 
-        if (!params.startDate || !params.endDate) {
+        // Calculate number of days with safe date parsing
+        const start = safeParseDate(params.startDate);
+        const end = safeParseDate(params.endDate);
+        const dayCount = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        
+        if (dayCount <= 0 || dayCount > 14) {
           setProgressState(prev => ({
             ...prev,
             status: 'error',
             progress: 0,
-            step: 'Start and end dates are required',
-            error: new Error('Start and end dates are required'),
+            step: 'Trip duration must be between 1 and 14 days',
+            error: new Error('Trip duration must be between 1 and 14 days'),
           }));
-          console.error('Cannot generate itinerary: Start and end dates are required');
-          return null;
-        }
-
-        // Calculate the number of days for the trip
-        const start = new Date(params.startDate);
-        const end = new Date(params.endDate);
-        
-        // Check if dates are valid
-        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-          setProgressState(prev => ({
-            ...prev,
-            status: 'error',
-            progress: 0,
-            step: 'Invalid date format',
-            error: new Error('Invalid date format'),
-          }));
-          console.error('Cannot generate itinerary: Invalid date format', { 
-            startDate: params.startDate, 
-            endDate: params.endDate,
-            startTime: start.getTime(),
-            endTime: end.getTime()
-          });
-          return null;
-        }
-        
-        const numberOfDays = Math.ceil(
-          (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-        ) + 1;
-        
-        console.log(`Trip length: ${numberOfDays} days`);
-        
-        if (numberOfDays <= 0) {
-          setProgressState(prev => ({
-            ...prev,
-            status: 'error',
-            progress: 0,
-            step: 'End date must be after start date',
-            error: new Error('End date must be after start date'),
-          }));
-          console.error('Cannot generate itinerary: End date must be after start date');
-          return null;
-        }
-
-        if (numberOfDays > 14) {
-          setProgressState(prev => ({
-            ...prev,
-            status: 'error',
-            progress: 0,
-            step: 'Itineraries cannot exceed 14 days',
-            error: new Error('Itineraries cannot exceed 14 days'),
-          }));
-          console.error('Cannot generate itinerary: Trip too long', numberOfDays);
+          console.error('Cannot generate itinerary: Trip duration must be between 1 and 14 days');
           return null;
         }
         
@@ -354,31 +311,31 @@ export function useEnhancedOpenAI() {
 
         // Proceed with generation
         try {
-          return await tryGenerateItinerary(params, numberOfDays);
-        } catch (error) {
+          return await tryGenerateItinerary(params, dayCount);
+        } catch (error: any) {
           console.error('Error in tryGenerateItinerary:', error);
           setProgressState(prev => ({
             ...prev,
             status: 'error',
             progress: 0,
-            step: `Failed to generate itinerary: ${error.message || 'Unknown error'}`,
-            error: error instanceof Error ? error : new Error(error.message || 'Unknown error'),
+            step: `Failed to generate itinerary: ${(error as Error).message || 'Unknown error'}`,
+            error: error instanceof Error ? error : new Error((error as Error).message || 'Unknown error'),
           }));
           
           if (params.onProgress) {
-            params.onProgress(0, `Error: ${error.message || 'Failed to generate itinerary'}`);
+            params.onProgress(0, `Error: ${(error as Error).message || 'Failed to generate itinerary'}`);
           }
           
           return null;
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error in generateItinerary:', error);
         setProgressState(prev => ({
           ...prev,
           status: 'error',
           progress: 0,
-          step: error.message || 'Unknown error',
-          error: error instanceof Error ? error : new Error(error.message || 'Unknown error'),
+          step: (error as Error).message || 'Unknown error',
+          error: error instanceof Error ? error : new Error((error as Error).message || 'Unknown error'),
         }));
         return null;
       }

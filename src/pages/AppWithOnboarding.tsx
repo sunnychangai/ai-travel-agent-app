@@ -1,10 +1,70 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Home from '@/components/home';
 import Onboarding from './Onboarding';
 import { supabase } from '@/lib/supabase';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import { useToast } from '@/components/ui/use-toast';
+import { ItineraryProvider, useItinerary } from '@/contexts/ItineraryContext';
+
+// Wrapper component to handle loading itineraries from URL
+const HomeWithItineraryLoader = () => {
+  const location = useLocation();
+  const { loadItinerary } = useItinerary();
+  const [isLoadingItinerary, setIsLoadingItinerary] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const loadItineraryFromParams = async () => {
+      const searchParams = new URLSearchParams(location.search);
+      const itineraryId = searchParams.get('load');
+      
+      if (itineraryId) {
+        try {
+          setIsLoadingItinerary(true);
+          await loadItinerary(itineraryId);
+          toast({
+            title: "Itinerary loaded",
+            description: "Your saved trip has been loaded successfully",
+          });
+        } catch (error) {
+          console.error('Error loading itinerary from URL:', error);
+          toast({
+            title: "Error",
+            description: "Failed to load the itinerary",
+            variant: "destructive",
+          });
+        } finally {
+          setIsLoadingItinerary(false);
+        }
+      }
+    };
+    
+    loadItineraryFromParams();
+  }, [location.search, loadItinerary, toast]);
+
+  return (
+    <>
+      {isLoadingItinerary && (
+        <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center">
+          <div className="bg-white p-4 rounded-lg shadow-lg">
+            <div className="animate-pulse">Loading your itinerary...</div>
+          </div>
+        </div>
+      )}
+      <Home />
+    </>
+  );
+};
+
+// New component that wraps HomeWithItineraryLoader with the ItineraryProvider
+const ItineraryApp = () => {
+  return (
+    <ItineraryProvider>
+      <HomeWithItineraryLoader />
+    </ItineraryProvider>
+  );
+};
 
 export default function AppWithOnboarding() {
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -114,12 +174,15 @@ export default function AppWithOnboarding() {
 
   return (
     <>
-      <Home />
-      {showOnboarding && (
-        <Onboarding 
-          onComplete={handleOnboardingComplete} 
-          key="onboarding-modal"
-        />
+      {showOnboarding ? (
+        <ItineraryProvider>
+          <Onboarding 
+            onComplete={handleOnboardingComplete} 
+            key="onboarding-modal"
+          />
+        </ItineraryProvider>
+      ) : (
+        <ItineraryApp />
       )}
     </>
   );

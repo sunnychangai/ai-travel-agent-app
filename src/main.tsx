@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App.tsx';
+import { AuthProvider } from './contexts/AuthContext';
 import { ItineraryProvider } from './contexts/ItineraryContext';
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -19,11 +20,13 @@ window.addEventListener('error', (event) => {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <UserPreferencesProvider>
-        <ItineraryProvider>
-          <App />
-        </ItineraryProvider>
-      </UserPreferencesProvider>
+      <AuthProvider>
+        <UserPreferencesProvider>
+          <ItineraryProvider>
+            <App />
+          </ItineraryProvider>
+        </UserPreferencesProvider>
+      </AuthProvider>
     </ErrorBoundary>
   </React.StrictMode>,
 );
