@@ -8,7 +8,7 @@ import { ArrowRight } from 'lucide-react';
 const demoMessages = [
   {
     role: 'assistant',
-    content: 'Hi there! I\'m your AI travel assistant. Where would you like to go on your next adventure?'
+    content: 'Hi there! I\'m your AI travel agent. Where would you like to go on your next adventure?'
   },
   {
     role: 'user',
@@ -27,11 +27,9 @@ export default function Landing() {
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="flex justify-between items-center">
           <div className="flex items-center">
-            <span className="text-2xl font-medium text-gray-900">AI Travel Assistant</span>
+            <span className="text-2xl font-medium text-gray-900">AI Travel Agent</span>
           </div>
           <div className="flex items-center space-x-6">
-            <Link to="/features" className="text-sm text-gray-500 hover:text-gray-900">Features</Link>
-            <Link to="/about" className="text-sm text-gray-500 hover:text-gray-900">About</Link>
             <Link to="/auth">
               <Button variant="outline" className="rounded-full px-6">
                 Sign In
@@ -59,7 +57,7 @@ export default function Landing() {
               transition={{ delay: 0.4 }}
               className="mt-6 text-xl text-gray-500 max-w-lg"
             >
-              Experience travel planning reimagined. Our AI assistant creates personalized itineraries tailored to your preferences in seconds.
+              Experience travel planning reimagined. Our AI agent creates personalized itineraries tailored to your preferences in seconds.
             </motion.p>
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
@@ -89,7 +87,7 @@ export default function Landing() {
                 <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                 <div className="w-3 h-3 rounded-full bg-green-500"></div>
               </div>
-              <span className="ml-4 text-sm font-medium text-gray-700">AI Travel Assistant</span>
+              <span className="ml-4 text-sm font-medium text-gray-700">AI Travel Agent</span>
             </div>
             <div className="p-6">
               <div className="space-y-6">
@@ -142,7 +140,7 @@ export default function Landing() {
           {[
             {
               title: 'AI-Powered Itineraries',
-              description: 'Our intelligent assistant creates personalized travel plans based on your preferences and interests.',
+              description: 'Our intelligent agent creates personalized travel plans based on your preferences and interests.',
               icon: '✨'
             },
             {
@@ -177,7 +175,7 @@ export default function Landing() {
         <div className="bg-black rounded-3xl px-6 py-12 md:py-16 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">Ready to plan your next adventure?</h2>
           <p className="text-gray-300 max-w-2xl mx-auto mb-8">
-            Join thousands of travelers who have simplified their trip planning with our AI assistant.
+            Join thousands of travelers who have simplified their trip planning with our AI agent.
           </p>
           <Link to="/auth">
             <Button size="lg" className="bg-white hover:bg-gray-100 text-black rounded-full px-8 py-6 text-lg">
@@ -221,7 +219,7 @@ export default function Landing() {
         </div>
         <div className="mt-12 border-t border-gray-200 pt-8">
           <p className="text-base text-gray-400 text-center">
-            &copy; {new Date().getFullYear()} AI Travel Assistant. All rights reserved.
+            &copy; {new Date().getFullYear()} AI Travel Agent. All rights reserved.
           </p>
         </div>
       </footer>

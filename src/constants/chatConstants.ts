@@ -24,7 +24,7 @@ export const ITINERARY_SUGGESTIONS = (destination: string): SuggestionChip[] => 
 // Welcome message template
 export const getWelcomeMessage = (userName: string = 'there'): UIMessage => ({
   id: "1",
-  content: `Hi ${userName}! I'm your AI travel assistant. I can help you plan your trip. Where would you like to go?`,
+  content: `Hi ${userName}! I'm your AI travel agent. I can help you plan your trip. Where would you like to go?`,
   sender: "ai",
   timestamp: new Date(),
 });

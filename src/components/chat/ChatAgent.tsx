@@ -88,7 +88,7 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
 
   // Initialize with welcome message
   useEffect(() => {
-    initializeWithWelcome("Hi there! I'm your AI travel assistant. I can help you plan your trip. Where would you like to go?");
+    initializeWithWelcome("Hi there! I'm your AI travel agent. I can help you plan your trip. Where would you like to go?");
   }, [initializeWithWelcome]);
 
   // Compute input disabled state

@@ -41,7 +41,7 @@ export default function ChatInterface({
       setMessages([
         {
           id: "1",
-          content: `Hi ${userName}! I'm your AI travel assistant. I can help you plan your trip. Where would you like to go?`,
+          content: `Hi ${userName}! I'm your AI travel agent. I can help you plan your trip. Where would you like to go?`,
           sender: "ai",
           timestamp: new Date(),
         },
@@ -50,7 +50,7 @@ export default function ChatInterface({
       setMessages([
         {
           id: "1",
-          content: "Hi there! I'm your AI travel assistant. I can help you plan your trip. Where would you like to go?",
+          content: "Hi there! I'm your AI travel agent. I can help you plan your trip. Where would you like to go?",
           sender: "ai",
           timestamp: new Date(),
         },

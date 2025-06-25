@@ -93,7 +93,7 @@ function ChatMessageList({
     {
       id: "1",
       content:
-        "Hi there! I'm your AI travel assistant. Where would you like to go on your next trip?",
+        "Hi there! I'm your AI travel agent. Where would you like to go on your next trip?",
       sender: "ai",
       timestamp: new Date(Date.now() - 60000 * 5),
     },

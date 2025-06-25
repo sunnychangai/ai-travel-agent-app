@@ -94,7 +94,7 @@ What would you like help with?`;
       // We have an itinerary but the message wasn't a specific update request
       return `I see you have an itinerary already! Is there anything specific you'd like to change or add to it? Or would you like me to explain any part of it in more detail?`;
     } else if (message.toLowerCase().includes('hello') || message.toLowerCase().includes('hi')) {
-      return `Hi there! I'm your AI travel assistant. I can help you plan trips, create customized itineraries, and provide travel recommendations. Where would you like to go?`;
+      return `Hi there! I'm your AI travel agent. I can help you plan trips, create customized itineraries, and provide travel recommendations. Where would you like to go?`;
     } else {
       // Generic response encouraging itinerary creation
       return `I'm here to help you plan your perfect trip! To get started, you can tell me where you'd like to go and when. For example, you could say "Plan a trip to Paris from June 1-7, 2025" or "I want to visit Tokyo for 5 days in April 2025."`;

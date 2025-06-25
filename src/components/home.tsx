@@ -14,7 +14,7 @@ const Header = () => {
         <div className="flex items-center space-x-2 pl-4">
           <Link to="/">
             <div className="flex items-center cursor-pointer hover:opacity-80 transition-opacity">
-              <h1 className="text-2xl font-bold">AI Travel Planner</h1>
+              <h1 className="text-2xl font-bold">AI Travel Agent</h1>
               <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full ml-2">
                 Beta
               </span>
