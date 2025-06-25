@@ -206,8 +206,12 @@ export default function TravelPlannerLayout({
       <div className={cn("flex flex-col h-full", className)}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
           {/* Tab content area - accounts for fixed bottom tabs */}
-          <div className="flex-1 overflow-hidden pb-16">
-            <TabsContent value="chat" className="h-full m-0 p-0">
+          <div className="flex-1 overflow-hidden pb-16 relative">
+            {/* Always render ChatAgent to preserve state, but conditionally show it */}
+            <div className={cn(
+              "absolute inset-0",
+              activeTab === "chat" ? "block" : "hidden"
+            )}>
               <ChatAgent 
                 onDestinationDetected={(destination) => {
                   // Use 2025 as the year for all new itineraries
@@ -221,9 +225,13 @@ export default function TravelPlannerLayout({
                   handleDestinationDetected(destination, formattedDate);
                 }} 
               />
-            </TabsContent>
+            </div>
             
-            <TabsContent value="itinerary" className="h-full m-0 p-0 bg-gray-100">
+            {/* Always render ItinerarySidebar to preserve state, but conditionally show it */}
+            <div className={cn(
+              "absolute inset-0 bg-gray-100",
+              activeTab === "itinerary" ? "block" : "hidden"
+            )}>
               <TravelPlannerErrorBoundary>
                 <ItinerarySidebar 
                   onAddActivity={handleAddActivity}
@@ -232,7 +240,7 @@ export default function TravelPlannerLayout({
                   onSaveItinerary={handleSaveItinerary}
                 />
               </TravelPlannerErrorBoundary>
-            </TabsContent>
+            </div>
           </div>
           
           {/* Fixed bottom tab navigation */}
