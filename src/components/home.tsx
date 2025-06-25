@@ -1,40 +1,62 @@
 import React, { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Settings } from 'lucide-react';
+import { Settings, Menu, HelpCircle, MapPin, ChevronDown } from 'lucide-react';
 import Onboarding from '../pages/Onboarding';
 import TravelPlannerLayout from "./TravelPlanner/TravelPlannerLayout";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Button } from "./ui/button";
 
-// Simplified header with My Trips link
+// Simplified header with dropdown menu
 const Header = () => {
   const [showSettings, setShowSettings] = useState(false);
 
   return (
     <>
       <header className="flex items-center justify-between p-4 border-b bg-white">
-        <div className="flex items-center space-x-2 pl-4">
+        <div className="flex items-center pl-2">
           <Link to="/">
             <div className="flex items-center cursor-pointer hover:opacity-80 transition-opacity">
-              <h1 className="text-2xl font-bold">AI Travel Agent</h1>
-              <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full ml-2">
+              <h1 className="text-xl font-bold mr-2">AI Travel Agent</h1>
+              <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
                 Beta
               </span>
             </div>
           </Link>
         </div>
-        <div className="flex items-center space-x-4">
-          <Link to="/my-trips" className="text-sm text-gray-600 hover:text-gray-900 hover:underline">
-            My Trips
-          </Link>
-          <button className="text-sm text-gray-600 hover:text-gray-900">
-            Help
-          </button>
-          <button 
-            className="flex items-center space-x-1 text-sm text-gray-600 hover:text-gray-900"
-            onClick={() => setShowSettings(true)}
-          >
-            <Settings className="h-4 w-4" />
-            <span>Settings</span>
-          </button>
+        
+        <div className="flex items-center">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="flex items-center space-x-1">
+                <Menu className="h-4 w-4" />
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem asChild>
+                <Link to="/my-trips" className="flex items-center w-full">
+                  <MapPin className="h-4 w-4 mr-2" />
+                  My Trips
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="flex items-center">
+                <HelpCircle className="h-4 w-4 mr-2" />
+                Help
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                className="flex items-center"
+                onClick={() => setShowSettings(true)}
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
