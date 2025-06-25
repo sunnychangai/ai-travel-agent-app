@@ -45,7 +45,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: build-files
-          path: build/
+          path: dist/
 
   deploy-to-staging:
     needs: build-and-test
@@ -53,45 +53,33 @@ jobs:
     if: github.ref == 'refs/heads/main' # Only deploy on main branch
 
     env:
-      VITE_SUPABASE_URL: ${{ secrets. }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets. }}
-      # Add other environment variables needed for deployment
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          name: build-files
-          path: build/
+          node-version: 18
+          cache: 'npm'
 
-      # Deploy to staging environment - Vercel example
-      - name: Deploy to Vercel (Staging)
-        uses: amondnet/vercel-action@v20
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: '--prod' # Remove this if you want to deploy to preview
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
 
-      # Alternatively, you could use Netlify, Firebase, or another hosting service
-      # Uncomment the appropriate deployment section based on your needs
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
-      # - name: Deploy to Netlify
-      #   uses: nwtgck/actions-netlify@v1.2
-      #   with:
-      #     publish-dir: './build'
-      #     production-branch: main
-      #     github-token: ${{ secrets.GITHUB_TOKEN }}
-      #     deploy-message: "Deploy from GitHub Actions"
-      #   env:
-      #     NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-      #     NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+      - name: Build Project Artifacts
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy Project Artifacts to Vercel
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       # Notify on successful deployment
       - name: Notify deployment status
         run: |
-          echo "Deployment to staging environment completed"
+          echo "Deployment to production environment completed"
           # You could add additional notification steps here (e.g., Slack, email) 

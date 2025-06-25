@@ -7,11 +7,13 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "../../components/ui/resizable";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
 import { useItinerary } from "../../contexts/ItineraryContext";
 import { Activity, ItineraryDay, SuggestionItem, Message } from "../../types";
 import { useToast } from "../../components/ui/use-toast";
 import { generateItineraryTitle } from "../../utils/itineraryUtils";
 import TravelPlannerErrorBoundary from "./TravelPlannerErrorBoundary";
+import { MessageCircle, Calendar } from "lucide-react";
 
 interface TravelPlannerLayoutProps {
   className?: string;
@@ -21,6 +23,9 @@ export default function TravelPlannerLayout({
   className,
 }: TravelPlannerLayoutProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [activeTab, setActiveTab] = useState("chat");
+  
   const {
     itineraryDays,
     addActivity,
@@ -35,6 +40,18 @@ export default function TravelPlannerLayout({
   
   // Use ref to track if we've refreshed for this update
   const hasRefreshedRef = useRef(false);
+  
+  // Check if device is mobile
+  useEffect(() => {
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth < 768); // md breakpoint
+    };
+    
+    checkIsMobile();
+    window.addEventListener('resize', checkIsMobile);
+    
+    return () => window.removeEventListener('resize', checkIsMobile);
+  }, []);
   
   // Log itinerary changes for debugging
   useEffect(() => {
@@ -63,6 +80,11 @@ export default function TravelPlannerLayout({
     
     // Force refresh after adding a day
     setTimeout(() => forceRefresh(), 100);
+    
+    // Switch to itinerary tab on mobile when destination is detected
+    if (isMobile) {
+      setActiveTab("itinerary");
+    }
   };
 
   const handleAddActivity = (dayNumber: number, activity: any) => {
@@ -152,6 +174,65 @@ export default function TravelPlannerLayout({
     }
   };
 
+  // Mobile layout with tabs
+  if (isMobile) {
+    return (
+      <div className={cn("flex flex-col h-full", className)}>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
+          <div className="flex-1 overflow-hidden">
+            <TabsContent value="chat" className="h-full m-0 p-0">
+              <ChatAgent 
+                onDestinationDetected={(destination) => {
+                  // Use 2025 as the year for all new itineraries
+                  const today = new Date();
+                  const currentYear = today.getFullYear() < 2025 ? 2025 : today.getFullYear();
+                  
+                  // Create a date in the current year with today's month and day
+                  const dateWithCurrentYear = new Date(currentYear, today.getMonth(), today.getDate());
+                  const formattedDate = dateWithCurrentYear.toISOString().split('T')[0];
+                  
+                  handleDestinationDetected(destination, formattedDate);
+                }} 
+              />
+            </TabsContent>
+            
+            <TabsContent value="itinerary" className="h-full m-0 p-0 bg-gray-100">
+              <TravelPlannerErrorBoundary>
+                <ItinerarySidebar 
+                  onAddActivity={handleAddActivity}
+                  onDeleteActivity={handleDeleteActivity}
+                  onUpdateActivity={handleUpdateActivity}
+                  onSaveItinerary={handleSaveItinerary}
+                />
+              </TravelPlannerErrorBoundary>
+            </TabsContent>
+          </div>
+          
+          {/* Bottom tab navigation */}
+          <div className="border-t bg-white">
+            <TabsList className="grid w-full grid-cols-2 h-16 bg-white rounded-none">
+              <TabsTrigger 
+                value="chat" 
+                className="flex flex-col items-center justify-center gap-1 h-full data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600"
+              >
+                <MessageCircle className="h-5 w-5" />
+                <span className="text-xs font-medium">Chat</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="itinerary" 
+                className="flex flex-col items-center justify-center gap-1 h-full data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600"
+              >
+                <Calendar className="h-5 w-5" />
+                <span className="text-xs font-medium">Itinerary</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
+        </Tabs>
+      </div>
+    );
+  }
+
+  // Desktop layout with resizable panels (unchanged)
   return (
     <div className={cn("flex flex-col h-full", className)}>
       <div className="h-full">
