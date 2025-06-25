@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Settings, Menu, HelpCircle, MapPin, ChevronDown } from 'lucide-react';
+import { Settings, Menu, HelpCircle, MapPin } from 'lucide-react';
 import Onboarding from '../pages/Onboarding';
 import TravelPlannerLayout from "./TravelPlanner/TravelPlannerLayout";
 import {
@@ -32,9 +32,8 @@ const Header = () => {
         <div className="flex items-center">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="flex items-center space-x-1">
+              <Button variant="ghost" size="sm" className="flex items-center">
                 <Menu className="h-4 w-4" />
-                <ChevronDown className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
