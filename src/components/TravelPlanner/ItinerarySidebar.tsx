@@ -111,19 +111,6 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   
   const [selectedDay, setSelectedDay] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"day" | "list">("day");
-  const [isMobile, setIsMobile] = useState(false);
-  
-  // Check if device is mobile
-  useEffect(() => {
-    const checkIsMobile = () => {
-      setIsMobile(window.innerWidth < 768); // md breakpoint
-    };
-    
-    checkIsMobile();
-    window.addEventListener('resize', checkIsMobile);
-    
-    return () => window.removeEventListener('resize', checkIsMobile);
-  }, []);
   
   // Log whenever itinerary days change to help with debugging
   useEffect(() => {
@@ -621,7 +608,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   return (
     <div className="h-full flex flex-col bg-gray-185">
       {/* Itinerary header */}
-      <div className="px-8 pt-5 pb-4 border-b bg-white">
+      <div className="px-4 md:px-8 pt-5 pb-4 border-b bg-white">
         <div className="flex flex-col">
           <h1 className="text-2xl font-bold text-slate-800 mb-1">
             {isEditingTitle ? (
@@ -700,7 +687,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       </div>
 
       {/* Day selector area - Always show */}
-      <div className="px-8 py-2 bg-white flex justify-between items-center border-b">
+      <div className="px-4 md:px-8 py-2 bg-white flex justify-between items-center border-b">
         <h3 className="text-base font-medium text-slate-700">Select View:</h3>
         
         {/* Day/List selector */}
@@ -732,7 +719,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
 
       {/* Day title and Add button - Only shown in day view */}
       {viewMode === "day" && (
-        <div className="px-8 py-4 bg-gray-185 flex justify-between items-center">
+        <div className="px-4 md:px-8 py-4 bg-gray-185 flex justify-between items-center">
           <h3 className="text-xl font-medium text-slate-700">
             {selectedDayData.formattedDate}
           </h3>
@@ -773,15 +760,12 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       )}
 
       {/* Activity list */}
-      <ScrollArea className={cn(
-        "flex-1 pl-4 pr-8 bg-gray-185",
-        isMobile ? "pb-20" : "pb-4"
-      )}>
+      <ScrollArea className="flex-1 pb-4 px-2 md:pl-4 md:pr-8 bg-gray-185">
         {viewMode === "day" ? (
           // Day view
           <>
             {selectedDay !== "all" && (
-              <div className="space-y-4 pl-3">
+              <div className="space-y-4">
                 {filteredDayForDayView.map((day) => (
                   <div key={day.dayNumber} className="space-y-4">
                     {day.activities.length === 0 ? (
@@ -815,7 +799,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
                           Add your first item
                         </button>
                       </div>
-                    ) : (
+                    ) :
                       getActivitiesWithUniqueIds(day.activities).map((activity) => (
                         <ActivityCard
                           key={getActivityIdSafely(activity.id)}

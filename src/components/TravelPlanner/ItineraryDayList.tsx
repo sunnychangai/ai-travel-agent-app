@@ -181,7 +181,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
     return (
       <div
         key={getActivityIdSafely(activity.id)}
-        className="space-y-4 px-3 pr-0"
+        className="space-y-4"
         style={style}
       >
         <ActivityCard
@@ -255,7 +255,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
             {renderHeader(day.dayNumber, day.date, index)}
             
             {/* Sort activities by time before rendering */}
-            <div className="space-y-4 px-3 pr-0">
+            <div className="space-y-4">
               {sortedActivities.map((activity: Activity, index: number) => (
                 <ActivityCard
                   key={getActivityIdSafely(activity.id)}
