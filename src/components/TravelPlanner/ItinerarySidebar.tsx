@@ -310,31 +310,6 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     }
   }, [itineraryDays, setCurrentItineraryTitle]); // Removed currentItineraryTitle from dependencies
 
-  // Create an initial day when the component mounts if no days exist
-  useEffect(() => {
-    // Skip this effect if it's been run once
-    const initialDayCreated = sessionStorage.getItem('initialDayCreated');
-    
-    if (itineraryDays.length === 0 && !initialDayCreated) {
-      console.log('ItinerarySidebar: Creating initial day');
-      
-      // Instead of using activityHookAdd which opens the modal,
-      // directly create an initial empty day
-      const newDay = {
-        dayNumber: 1,
-        date: format(new Date(2025, 2, 17), 'yyyy-MM-dd'),
-        activities: []
-      };
-      
-      if (typeof addDay === 'function') {
-        addDay(newDay);
-      }
-      
-      // Mark that we've created the initial day
-      sessionStorage.setItem('initialDayCreated', 'true');
-    }
-  }, [itineraryDays.length, addDay]);
-
   // Update selected day when the current selected day has no activities
   useEffect(() => {
     // Skip this check if in list view
