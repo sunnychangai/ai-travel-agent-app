@@ -111,6 +111,19 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   
   const [selectedDay, setSelectedDay] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"day" | "list">("day");
+  const [isMobile, setIsMobile] = useState(false);
+  
+  // Check if device is mobile
+  useEffect(() => {
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth < 768); // md breakpoint
+    };
+    
+    checkIsMobile();
+    window.addEventListener('resize', checkIsMobile);
+    
+    return () => window.removeEventListener('resize', checkIsMobile);
+  }, []);
   
   // Log whenever itinerary days change to help with debugging
   useEffect(() => {
@@ -760,7 +773,10 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       )}
 
       {/* Activity list */}
-      <ScrollArea className="flex-1 pb-4 pl-4 pr-8 bg-gray-185">
+      <ScrollArea className={cn(
+        "flex-1 pl-4 pr-8 bg-gray-185",
+        isMobile ? "pb-20" : "pb-4"
+      )}>
         {viewMode === "day" ? (
           // Day view
           <>
