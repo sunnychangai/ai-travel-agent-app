@@ -99,6 +99,9 @@ export default function Auth() {
   };
 
   const handleOAuthSignIn = async (provider: 'google' | 'github') => {
+    // OAuth providers are not configured yet
+    // Uncomment and configure when ready to enable OAuth
+    /*
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
@@ -116,6 +119,13 @@ export default function Auth() {
         variant: "destructive",
       });
     }
+    */
+    
+    // Show a toast message for now
+    toast({
+      title: "Coming Soon",
+      description: `${provider.charAt(0).toUpperCase() + provider.slice(1)} sign-in will be available soon!`,
+    });
   };
 
   return (
@@ -211,17 +221,23 @@ export default function Auth() {
                 variant="outline"
                 onClick={() => handleOAuthSignIn('google')}
                 disabled={loading}
-                className="w-full"
+                className="w-full relative"
               >
                 Google
+                <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs px-1 py-0.5 rounded-full text-[10px]">
+                  Soon
+                </span>
               </Button>
               <Button
                 variant="outline"
                 onClick={() => handleOAuthSignIn('github')}
                 disabled={loading}
-                className="w-full"
+                className="w-full relative"
               >
                 GitHub
+                <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs px-1 py-0.5 rounded-full text-[10px]">
+                  Soon
+                </span>
               </Button>
             </div>
           </CardContent>
