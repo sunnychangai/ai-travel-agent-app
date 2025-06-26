@@ -71,6 +71,7 @@ export default function AppWithOnboarding() {
   const [authChecked, setAuthChecked] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('Loading...');
   const [preferencesTimeout, setPreferencesTimeout] = useState(false);
+  const [forceReady, setForceReady] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
   const { userPreferences, loading: preferencesLoading, refreshPreferences } = useUserPreferences();
@@ -79,11 +80,31 @@ export default function AppWithOnboarding() {
   const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
 
+  // Add aggressive timeout for mobile devices - force app to load after 10 seconds
+  useEffect(() => {
+    if (isMobile) {
+      const forceTimeout = setTimeout(() => {
+        console.warn('FORCE TIMEOUT: Mobile app taking too long to load - forcing ready state');
+        setForceReady(true);
+        setPreferencesTimeout(true);
+        setLoadingMessage('Ready!');
+        
+        // Force show onboarding as fallback
+        const onboardingDismissed = localStorage.getItem('onboardingDismissed');
+        if (!onboardingDismissed) {
+          setShowOnboarding(true);
+        }
+      }, 10000); // 10 second force timeout
+
+      return () => clearTimeout(forceTimeout);
+    }
+  }, [isMobile]);
+
   // Add timeout for preferences loading on mobile
   useEffect(() => {
     let preferencesTimeoutId: NodeJS.Timeout | undefined;
 
-    if (authChecked && preferencesLoading && isMobile) {
+    if (authChecked && preferencesLoading && isMobile && !forceReady) {
       console.log('Setting mobile preferences timeout...');
       preferencesTimeoutId = setTimeout(() => {
         console.warn('Mobile preferences loading timeout reached - proceeding without waiting');
@@ -103,7 +124,7 @@ export default function AppWithOnboarding() {
         clearTimeout(preferencesTimeoutId);
       }
     };
-  }, [authChecked, preferencesLoading, isMobile]);
+  }, [authChecked, preferencesLoading, isMobile, forceReady]);
 
   // Check user authentication only once
   useEffect(() => {
@@ -252,7 +273,7 @@ export default function AppWithOnboarding() {
     let onboardingTimeout: NodeJS.Timeout;
 
     // Check if we should proceed with onboarding decision
-    const shouldProceed = authChecked && (!preferencesLoading || preferencesTimeout);
+    const shouldProceed = authChecked && (!preferencesLoading || preferencesTimeout || forceReady);
 
     if (shouldProceed) {
       const onboardingDismissed = localStorage.getItem('onboardingDismissed');
@@ -261,6 +282,7 @@ export default function AppWithOnboarding() {
         authChecked,
         preferencesLoading,
         preferencesTimeout,
+        forceReady,
         userPreferences: userPreferences || 'none',
         onboardingDismissed,
         isMobile
@@ -270,13 +292,14 @@ export default function AppWithOnboarding() {
       // 1. User has no preferences and hasn't dismissed onboarding
       // 2. User preferences is null/undefined (new user)
       // 3. On mobile with timeout, show onboarding as fallback
+      // 4. Force ready state (emergency fallback)
       const shouldShowOnboarding = !onboardingDismissed && 
         (!userPreferences || Object.keys(userPreferences || {}).length === 0 || 
-         (isMobile && preferencesTimeout));
+         (isMobile && (preferencesTimeout || forceReady)));
       
       console.log("Should show onboarding:", shouldShowOnboarding);
       setShowOnboarding(shouldShowOnboarding);
-    } else if (authChecked && preferencesLoading && isMobile) {
+    } else if (authChecked && preferencesLoading && isMobile && !forceReady) {
       // Additional safety timeout for onboarding decision
       onboardingTimeout = setTimeout(() => {
         console.warn('Mobile onboarding decision timeout - proceeding without preferences');
@@ -289,7 +312,7 @@ export default function AppWithOnboarding() {
         clearTimeout(onboardingTimeout);
       }
     };
-  }, [userPreferences, preferencesLoading, authChecked, preferencesTimeout, isMobile]);
+  }, [userPreferences, preferencesLoading, authChecked, preferencesTimeout, forceReady, isMobile]);
 
   const handleOnboardingComplete = useCallback(async () => {
     console.log("Onboarding completed callback triggered");
@@ -307,7 +330,7 @@ export default function AppWithOnboarding() {
   }, [refreshPreferences]);
 
   // Improved loading condition - don't wait indefinitely for preferences on mobile
-  const isLoading = !authChecked || (authChecked && preferencesLoading && !preferencesTimeout);
+  const isLoading = !authChecked || (authChecked && preferencesLoading && !preferencesTimeout && !forceReady);
 
   // Show loading with mobile-specific messages and timeout handling
   if (isLoading) {
@@ -323,6 +346,11 @@ export default function AppWithOnboarding() {
           {isMobile && preferencesLoading && (
             <div className="text-xs text-gray-400 mt-2">
               Loading your preferences...
+            </div>
+          )}
+          {isMobile && authChecked && (
+            <div className="text-xs text-blue-500 mt-1">
+              Will proceed automatically in a few seconds...
             </div>
           )}
         </div>
