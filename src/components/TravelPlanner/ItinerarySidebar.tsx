@@ -193,150 +193,163 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   // Generate and set a title based on destination and dates when the itinerary changes
   useEffect(() => {
     // Always execute the effect, but conditionally perform actions
-    if (itineraryDays.length === 0) {
-      console.log('Auto-title generation - skipped: no itinerary days');
-      return;
-    }
-
-    // Get destination from activities - try to find the most relevant one
-    const activities = itineraryDays.flatMap(day => day.activities);
+    let shouldProceed = false;
+    let activities: any[] = [];
     
-    console.log('Auto-title generation - activities found:', activities.length);
-    
-    // Only proceed if we have activities to work with
-    if (activities.length === 0) {
-      console.log('Auto-title generation - skipped: no activities found');
-      return;
-    }
-    
-    // First check if there's an activity with "city" or "destination" type
-    let destinationActivity = activities.find(activity => 
-      activity.type?.toLowerCase().includes('destination') ||
-      activity.type?.toLowerCase().includes('city')
-    );
-    
-    // If not, try to find one with "sightseeing" type as those are often landmarks
-    if (!destinationActivity) {
-      destinationActivity = activities.find(activity => 
-        activity.type?.toLowerCase().includes('sightseeing')
-      );
-    }
-    
-    // If we still don't have a destination activity, use the first activity with a meaningful location
-    if (!destinationActivity) {
-      destinationActivity = activities.find(activity => {
-        const location = activity.location?.trim();
-        return location && 
-               location.length > 0 && 
-               location !== 'Unknown' && 
-               location !== 'TBD' &&
-               !location.toLowerCase().includes('enter location');
-      });
-    }
-    
-    // Extract the city name from the location
-    let destination = '';
-    if (destinationActivity?.location) {
-      const location = destinationActivity.location.trim();
-      const addressParts = location.split(',');
+    if (itineraryDays.length > 0) {
+      // Get destination from activities - try to find the most relevant one
+      activities = itineraryDays.flatMap(day => day.activities);
+      console.log('Auto-title generation - activities found:', activities.length);
       
-      if (addressParts.length >= 2) {
-        // Use the city part (typically the second segment of the address)
-        destination = addressParts[1].trim();
-      } else if (addressParts.length === 1 && addressParts[0].trim()) {
-        // If there's only one part and it's not empty, use it
-        destination = addressParts[0].trim();
-      }
-      
-      // Clean up common words that shouldn't be in destination names
-      destination = destination.replace(/^\d+\s+/, ''); // Remove leading numbers
-      destination = destination.replace(/\b(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)\b/gi, '').trim();
-      
-      // If destination is still too generic or empty, skip auto-generation
-      if (!destination || 
-          destination.length < 2 || 
-          destination.toLowerCase().includes('unknown') ||
-          destination.toLowerCase().includes('location') ||
-          destination.toLowerCase() === 'tbd') {
-        destination = '';
-      }
-    }
-    
-    console.log('Auto-title generation - extracted destination:', destination);
-    console.log('Auto-title generation - current title:', currentItineraryTitle);
-    console.log('Auto-title generation - hasUserEditedTitle:', hasUserEditedTitle.current);
-    
-    // Only proceed if we found a meaningful destination
-    if (!destination) {
-      console.log('Auto-title generation - skipped: no meaningful destination found');
-      return;
-    }
-    
-    // Only update if the title is still the default and user hasn't manually edited it
-    const currentTitle = currentItineraryTitle;
-    const isDefaultTitle = currentTitle === "My Itinerary" || !currentTitle.trim();
-    
-    // Only auto-generate titles for new itineraries if the user hasn't manually edited the title
-    if (isDefaultTitle && !hasUserEditedTitle.current) {
-      // Get dates from first and last day
-      const sortedDays = [...itineraryDays].sort((a, b) => a.dayNumber - b.dayNumber);
-      
-      if (sortedDays.length > 0) {
-        try {
-          // Check for valid dates
-          const startDate = sortedDays[0]?.date;
-          const endDate = sortedDays[sortedDays.length - 1]?.date;
-          
-          console.log('Auto-title generation - dates:', { startDate, endDate });
-          
-          if (startDate && endDate) {
-            const newTitle = generateItineraryTitle(destination, startDate || '', endDate || '');
-            console.log('Auto-title generation - generated title:', newTitle);
-            setCurrentItineraryTitle(newTitle);
-          } else {
-            // Default title with just destination if dates are missing
-            const fallbackTitle = `Trip to ${destination}`;
-            console.log('Auto-title generation - fallback title (no dates):', fallbackTitle);
-            setCurrentItineraryTitle(fallbackTitle);
-          }
-        } catch (error) {
-          // If date processing fails, just use destination
-          const errorTitle = `Trip to ${destination}`;
-          console.log('Auto-title generation - error title:', errorTitle, error);
-          setCurrentItineraryTitle(errorTitle);
-        }
+      if (activities.length > 0) {
+        shouldProceed = true;
+      } else {
+        console.log('Auto-title generation - skipped: no activities found');
       }
     } else {
-      console.log('Auto-title generation - skipped because:', {
-        isDefaultTitle,
-        hasUserEditedTitle: hasUserEditedTitle.current
-      });
+      console.log('Auto-title generation - skipped: no itinerary days');
     }
-  }, [itineraryDays, setCurrentItineraryTitle]);
+    
+    if (shouldProceed) {
+      // First check if there's an activity with "city" or "destination" type
+      let destinationActivity = activities.find(activity => 
+        activity.type?.toLowerCase().includes('destination') ||
+        activity.type?.toLowerCase().includes('city')
+      );
+      
+      // If not, try to find one with "sightseeing" type as those are often landmarks
+      if (!destinationActivity) {
+        destinationActivity = activities.find(activity => 
+          activity.type?.toLowerCase().includes('sightseeing')
+        );
+      }
+      
+      // If we still don't have a destination activity, use the first activity with a meaningful location
+      if (!destinationActivity) {
+        destinationActivity = activities.find(activity => {
+          const location = activity.location?.trim();
+          return location && 
+                 location.length > 0 && 
+                 location !== 'Unknown' && 
+                 location !== 'TBD' &&
+                 !location.toLowerCase().includes('enter location');
+        });
+      }
+      
+      // Extract the city name from the location
+      let destination = '';
+      if (destinationActivity?.location) {
+        const location = destinationActivity.location.trim();
+        const addressParts = location.split(',');
+        
+        if (addressParts.length >= 2) {
+          // Use the city part (typically the second segment of the address)
+          destination = addressParts[1].trim();
+        } else if (addressParts.length === 1 && addressParts[0].trim()) {
+          // If there's only one part and it's not empty, use it
+          destination = addressParts[0].trim();
+        }
+        
+        // Clean up common words that shouldn't be in destination names
+        destination = destination.replace(/^\d+\s+/, ''); // Remove leading numbers
+        destination = destination.replace(/\b(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)\b/gi, '').trim();
+        
+        // If destination is still too generic or empty, skip auto-generation
+        if (!destination || 
+            destination.length < 2 || 
+            destination.toLowerCase().includes('unknown') ||
+            destination.toLowerCase().includes('location') ||
+            destination.toLowerCase() === 'tbd') {
+          destination = '';
+        }
+      }
+      
+      console.log('Auto-title generation - extracted destination:', destination);
+      console.log('Auto-title generation - current title:', currentItineraryTitle);
+      console.log('Auto-title generation - hasUserEditedTitle:', hasUserEditedTitle.current);
+      
+      // Only proceed if we found a meaningful destination
+      if (destination) {
+        // Only update if the title is still the default and user hasn't manually edited it
+        const currentTitle = currentItineraryTitle;
+        const isDefaultTitle = currentTitle === "My Itinerary" || !currentTitle.trim();
+        
+        // Only auto-generate titles for new itineraries if the user hasn't manually edited the title
+        if (isDefaultTitle && !hasUserEditedTitle.current) {
+          // Get dates from first and last day
+          const sortedDays = [...itineraryDays].sort((a, b) => a.dayNumber - b.dayNumber);
+          
+          if (sortedDays.length > 0) {
+            try {
+              // Check for valid dates
+              const startDate = sortedDays[0]?.date;
+              const endDate = sortedDays[sortedDays.length - 1]?.date;
+              
+              console.log('Auto-title generation - dates:', { startDate, endDate });
+              
+              if (startDate && endDate) {
+                const newTitle = generateItineraryTitle(destination, startDate || '', endDate || '');
+                console.log('Auto-title generation - generated title:', newTitle);
+                setCurrentItineraryTitle(newTitle);
+              } else {
+                // Default title with just destination if dates are missing
+                const fallbackTitle = `Trip to ${destination}`;
+                console.log('Auto-title generation - fallback title (no dates):', fallbackTitle);
+                setCurrentItineraryTitle(fallbackTitle);
+              }
+            } catch (error) {
+              // If date processing fails, just use destination
+              const errorTitle = `Trip to ${destination}`;
+              console.log('Auto-title generation - error title:', errorTitle, error);
+              setCurrentItineraryTitle(errorTitle);
+            }
+          }
+        } else {
+          console.log('Auto-title generation - skipped because:', {
+            isDefaultTitle,
+            hasUserEditedTitle: hasUserEditedTitle.current
+          });
+        }
+      } else {
+        console.log('Auto-title generation - skipped: no meaningful destination found');
+      }
+    }
+  }, [itineraryDays, setCurrentItineraryTitle, currentItineraryTitle]);
 
   // Update selected day when the current selected day has no activities
   useEffect(() => {
     // Always execute the effect, perform conditional logic inside
-    if (selectedDay === "list") {
-      return;
-    }
+    let shouldUpdateSelection = false;
+    let newSelectedDay = selectedDay;
+    let newViewMode = viewMode;
     
-    // Check if the currently selected day exists and has no activities
-    const selectedDayObj = itineraryDays.find(day => day.dayNumber === parseInt(selectedDay));
+    if (selectedDay !== "list") {
+      // Check if the currently selected day exists and has no activities
+      const selectedDayObj = itineraryDays.find(day => day.dayNumber === parseInt(selectedDay));
 
-    if (selectedDayObj && selectedDayObj.activities.length === 0) {
-      // Find the first day with activities
-      const dayWithActivities = itineraryDays.find(day => day.activities.length > 0);
-      
-      if (dayWithActivities) {
-        setSelectedDay(dayWithActivities.dayNumber.toString());
-      } else {
-        // If no days with activities, set to list view
-        setSelectedDay("list");
-        setViewMode("list");
+      if (selectedDayObj && selectedDayObj.activities.length === 0) {
+        // Find the first day with activities
+        const dayWithActivities = itineraryDays.find(day => day.activities.length > 0);
+        
+        if (dayWithActivities) {
+          newSelectedDay = dayWithActivities.dayNumber.toString();
+          shouldUpdateSelection = true;
+        } else {
+          // If no days with activities, set to list view
+          newSelectedDay = "list";
+          newViewMode = "list";
+          shouldUpdateSelection = true;
+        }
       }
     }
-  }, [itineraryDays, selectedDay]);
+    
+    if (shouldUpdateSelection) {
+      setSelectedDay(newSelectedDay);
+      if (newViewMode !== viewMode) {
+        setViewMode(newViewMode);
+      }
+    }
+  }, [itineraryDays, selectedDay, viewMode]);
   
   // Using useRef to store already processed IDs to prevent repeated fixes on every render
   const processedActivityIds = useRef(new Set<string>());
