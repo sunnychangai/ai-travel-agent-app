@@ -139,20 +139,13 @@ const MyTripsPageContent: React.FC = () => {
             const dateRangeText = `${formatDate(itinerary.startDate, 'MM/DD')} - ${formatDate(itinerary.endDate, 'MM/DD')}`;
             const daysCount = itinerary.days.length;
             
-            // Extract just the base title if it already contains date information
-            let displayTitle = itinerary.title;
-            if (displayTitle.includes('(') && displayTitle.includes(')')) {
-              // The title likely already has date info in parentheses - extract just the main part
-              displayTitle = displayTitle.split('(')[0].trim();
-            }
-            
             return (
               <Card 
                 key={itinerary.id} 
                 className="overflow-hidden hover:shadow-md transition-shadow"
               >
                 <CardHeader className="pb-2">
-                  <CardTitle className="line-clamp-1 text-xl">{displayTitle}</CardTitle>
+                  <CardTitle className="line-clamp-1 text-xl">{itinerary.title}</CardTitle>
                   <CardDescription className="flex items-center">
                     <Calendar className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
                     {dateRangeText} ({daysCount} days)
