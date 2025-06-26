@@ -68,11 +68,15 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
     const loadPreferences = async () => {
       try {
         setIsLoading(true);
-        setError(null);
         await refreshPreferences();
-      } catch (error: any) {
+      } catch (error) {
         console.error('Error loading preferences:', error);
         setError('Failed to load user preferences');
+        toast({
+          title: "Error",
+          description: "Failed to load your preferences. Please try again later.",
+          variant: "destructive",
+        });
       } finally {
         setIsLoading(false);
       }
@@ -80,16 +84,10 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
 
     // Check if user is authenticated
     const checkAuth = async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        if (data.session) {
-          await loadPreferences();
-        } else {
-          setUserPreferences(null);
-          setIsLoading(false);
-        }
-      } catch (error: any) {
-        console.error('Auth check error:', error);
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        loadPreferences();
+      } else {
         setUserPreferences(null);
         setIsLoading(false);
       }
@@ -98,21 +96,18 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
     checkAuth();
 
     // Subscribe to auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state change:', event);
-      
-      if (event === 'SIGNED_IN' && session) {
-        await loadPreferences();
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event) => {
+      if (event === 'SIGNED_IN') {
+        loadPreferences();
       } else if (event === 'SIGNED_OUT') {
         setUserPreferences(null);
-        setIsLoading(false);
       }
     });
 
     return () => {
-      authListener?.subscription?.unsubscribe();
+      authListener.subscription.unsubscribe();
     };
-  }, []);
+  }, [toast]);
 
   // Save/Update user preferences in Supabase
   const savePreferences = async (preferences: Partial<UserPreferences>): Promise<void> => {
@@ -179,7 +174,7 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
         title: "Success",
         description: "Your preferences have been saved.",
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving preferences:', error);
       setError('Failed to save preferences');
       
@@ -198,23 +193,25 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
   // Get current user preferences from Supabase
   const getUserPreferences = async (): Promise<UserPreferences | null> => {
     try {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        const { data: prefsData } = await supabase
-          .from('user_preferences')
-          .select('*')
-          .eq('user_id', data.user.id)
-          .maybeSingle();
-
-        if (prefsData) {
-          return prefsData;
-        } else {
-          return null;
-        }
-      } else {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
         return null;
       }
-    } catch (error: any) {
+
+      const { data, error } = await supabase
+        .from('user_preferences')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      return data;
+    } catch (error) {
       console.error('Error fetching user preferences:', error);
       setError('Failed to fetch preferences');
       return null;
@@ -227,7 +224,7 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
       const preferences = await getUserPreferences();
       setUserPreferences(preferences);
       setError(null);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error refreshing preferences:', error);
       setError('Failed to refresh preferences');
     }
