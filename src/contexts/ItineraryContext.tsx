@@ -242,78 +242,21 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
 
   // Load user's most recent itinerary when user signs in
   useEffect(() => {
-    // Only load if we have a user and we haven't loaded from storage yet
-    if (!user || hasLoadedFromStorage.current || isRefreshing.current) {
+    // Skip automatic loading to prevent loading issues
+    // Users can manually load their itineraries from the My Trips page
+    if (!user) {
       return;
     }
 
-    // Set the flag to prevent loading again
-    hasLoadedFromStorage.current = true;
-    
-    const loadUserMostRecentItinerary = async () => {
-      try {
-        console.log('Loading most recent itinerary for authenticated user:', user.id);
-        
-        // Set loading state
-        setIsLoading(true);
-        
-        // Check if Supabase is configured before making the request
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-        
-        if (!supabaseUrl || !supabaseAnonKey) {
-          console.warn('Supabase not configured - skipping itinerary loading');
-          return;
-        }
-        
-        // Get all user itineraries and find the most recent one
-        const itineraries = await databaseService.getUserItineraries(user.id);
-        
-        if (itineraries.length > 0) {
-          // Sort by updated_at to get the most recent
-          const sortedItineraries = itineraries.sort((a: any, b: any) => 
-            new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime()
-          );
-          
-          const mostRecentItinerary = sortedItineraries[0];
-          
-          console.log('Found most recent itinerary for user, loading:', mostRecentItinerary.name);
-          
-          // Set the data in our state
-          setItineraryDays(mostRecentItinerary.days || []);
-          setCurrentItineraryId(mostRecentItinerary.id);
-          setCurrentItineraryTitle(mostRecentItinerary.name || 'My Itinerary');
-          
-          // Also update session storage
-          setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, mostRecentItinerary.days || []);
-          setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, mostRecentItinerary.id);
-          setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, mostRecentItinerary.name || 'My Itinerary');
-          
-          // Force UI refresh after loading
-          setTimeout(() => forceRefresh(), 100);
-        } else {
-          console.log('No saved itineraries found for user');
-        }
-      } catch (error) {
-        console.error('Error loading user most recent itinerary:', error);
-        // Don't block the UI if there's an error loading itineraries
-        hasLoadedFromStorage.current = false; // Allow retry
-      } finally {
-        // Always clear loading state
-        setIsLoading(false);
-      }
-    };
-    
-    // Add a small delay to ensure the user context is fully settled
-    const timeoutId = setTimeout(() => {
-      loadUserMostRecentItinerary();
-    }, 500);
-    
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]); // Run when user changes (login/logout)
+    // Just clear any existing data when user changes
+    const currentUserId = sessionStorage.getItem('currentUserId');
+    if (currentUserId && currentUserId !== user.id) {
+      setItineraryDays([]);
+      setCurrentItineraryId(null);
+      setCurrentItineraryTitle('My Itinerary');
+    }
+    sessionStorage.setItem('currentUserId', user.id);
+  }, [user]);
 
   // Memoize sorted itinerary days to prevent recalculations
   const sortedItineraryDays = useMemo(() => {
