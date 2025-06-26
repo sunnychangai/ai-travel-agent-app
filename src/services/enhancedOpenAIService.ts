@@ -635,194 +635,184 @@ export const enhancedOpenAIService = {
       cacheKey?: string 
     } = {}
   ) {
-    // Validate API key first
-    const currentApiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!currentApiKey || currentApiKey === 'your_openai_api_key') {
-      throw new Error('OpenAI API key is missing or not configured. Please check your environment variables in Vercel deployment settings.');
-    }
-
-    // Format dates consistently
-    const formattedStartDate = typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0];
-    const formattedEndDate = typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0];
+    // Detect mobile device for better error handling
+    const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
     
-    // Extract progress callback if provided
-    const onProgress = userPreferences.onProgress;
-    
-    // Create a more specific cache key with relevant parameters
-    const cacheParams = {
-      destination,
-      startDate: formattedStartDate,
-      endDate: formattedEndDate,
-      travelStyle: userPreferences.travelStyle || 'balanced',
-      budget: userPreferences.budget || 'mid-range',
-      interests: Array.isArray(userPreferences.interests) 
-        ? userPreferences.interests.map((i: any) => i.label || i).join(',')
-        : '',
-      travelGroup: userPreferences.travelGroup || 'solo',
-      generationQuality: userPreferences.generationQuality || 'standard',
-      useExternalData: options.useTripadvisor || options.useGoogleMaps || false
-    };
-    
-    const cacheKey = options.cacheKey || createEnhancedCacheKey('itinerary', cacheParams);
-    
-    // Use stale-while-revalidate pattern to immediately return cached data while refreshing
-    return responseCache.getOrFetch(
-      cacheKey,
-      async () => {
-        console.log('Generating new itinerary for', destination);
-        
-        try {
-          // Create a faster, simplified version depending on preferences
-          const useComprehensiveGeneration = userPreferences.generationQuality === 'comprehensive';
-          
-          let itineraryData;
-          
-          if (useComprehensiveGeneration) {
-            // Use the more detailed but slower generation method
-            itineraryData = await this.generateCompleteItinerary(
-              destination,
-              formattedStartDate,
-              formattedEndDate,
-              userPreferences.interests || [],
-              {
-                travelStyle: userPreferences.travelStyle || 'balanced',
-                travelGroup: userPreferences.travelGroup || 'solo',
-                budget: userPreferences.budget || 'mid-range',
-                transportMode: userPreferences.transportation || 'walking',
-                dietaryPreferences: userPreferences.dietary || [],
-                pace: userPreferences.pace || 'moderate'
-              },
-              { signal: options.signal }
-            );
-          } else {
-            // Report progress if callback provided
-            if (onProgress) {
-              onProgress(30, 'Generating itinerary...');
-            }
-            
-            // Use a simpler, faster single API call approach
-            const prompt = this.createItineraryPrompt(
-              destination, 
-              formattedStartDate, 
-              formattedEndDate, 
-              userPreferences
-            );
-            
-            try {
-              const response = await openai.chat.completions.create({
-                model: 'gpt-3.5-turbo-1106',
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 0.7,
-                response_format: { type: 'json_object' },
-              }, {
-                signal: options.signal,
-              });
-              
-              if (onProgress) {
-                onProgress(60, 'Processing results...');
-              }
-              
-              const content = response.choices[0]?.message?.content;
-              if (!content) {
-                throw new Error('Failed to generate itinerary - empty response');
-              }
-              
-              try {
-                itineraryData = JSON.parse(content);
-              } catch (e) {
-                console.error('Failed to parse itinerary JSON:', e);
-                throw new Error('Failed to parse itinerary response');
-              }
-            } catch (error) {
-              // Check if this is an abort error
-              if ((error as Error).name === 'AbortError' || (error as Error).message?.includes('aborted')) {
-                console.log('Itinerary generation aborted by user.');
-                throw error; // Re-throw abort errors to be handled by caller
-              }
-              
-              // For other errors, try to provide a more helpful message
-              console.error('Error in OpenAI API call:', error);
-              throw new Error(`Failed to generate itinerary: ${(error as Error).message || 'Unknown error'}`);
-            }
-          }
-          
-          // Add a title to the itinerary if not already present
-          if (!itineraryData.title) {
-            const durationDays = Math.ceil(
-              (new Date(formattedEndDate).getTime() - new Date(formattedStartDate).getTime()) / 
-              (1000 * 60 * 60 * 24)
-            ) + 1;
-            
-            itineraryData.title = `${durationDays}-Day Trip to ${destination}`;
-          }
-          
-          // Report progress if callback provided
-          if (onProgress) {
-            onProgress(75, 'Enhancing itinerary details...');
-          }
-          
-          // Only enhance with external data if explicitly requested
-          // These external API calls are often a significant performance bottleneck
-          const shouldUseExternalData = 
-            (options.useTripadvisor || options.useGoogleMaps) && 
-            userPreferences.useExternalData;
-          
-          if (shouldUseExternalData) {
-            itineraryData = await this.enhanceItineraryWithExternalData(
-              itineraryData,
-              {
-                useTripadvisor: !!options.useTripadvisor,
-                useGoogleMaps: !!options.useGoogleMaps,
-                destination
-              }
-            );
-          }
-          
-          // Final progress update
-          if (onProgress) {
-            onProgress(90, 'Finalizing your itinerary...');
-          }
-          
-          return itineraryData;
-        } catch (error: any) {
-          console.error('Error generating complete itinerary:', error);
-          
-          // Calculate dayCount for error context
-          const dayCount = Math.ceil(
-            (new Date(formattedEndDate).getTime() - new Date(formattedStartDate).getTime()) / 
-            (1000 * 60 * 60 * 24)
-          ) + 1;
-          
-          // Better error context for debugging
-          const errorContext = {
-            destination,
-            startDate: formattedStartDate,
-            endDate: formattedEndDate,
-            interests: userPreferences.interests || [],
-            preferences: userPreferences,
-            dayCount
-          };
-          
-          console.error('Error context:', errorContext);
-          
-          // Check if it's an API error and provide helpful message
-          if ((error as Error).message?.includes('rate limit')) {
-            throw new Error('OpenAI API rate limit exceeded. Please wait a moment and try again.');
-          }
-          
-          if ((error as Error).message?.includes('network') || (error as Error).message?.includes('timeout')) {
-            throw new Error('Network error occurred. Please check your connection and try again.');
-          }
-          
-          // Generic error with context
-          throw new Error(`Failed to generate itinerary: ${(error as Error).message || 'Unknown error'}`);
-        }
-      },
-      {
-        compress: performanceConfig.cache.useCompression,
-        background: true // Always refresh in background after a period
+    try {
+      // Validate API key first
+      const currentApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      if (!currentApiKey || currentApiKey === 'your_openai_api_key') {
+        throw new Error('OpenAI API key is missing or not configured. Please check your environment variables in Vercel deployment settings.');
       }
-    );
+
+      // Format dates consistently
+      const formattedStartDate = typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0];
+      const formattedEndDate = typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0];
+      
+      // Extract progress callback if provided
+      const onProgress = userPreferences.onProgress;
+      
+      // Create a more specific cache key with relevant parameters
+      const cacheParams = {
+        destination,
+        startDate: formattedStartDate,
+        endDate: formattedEndDate,
+        travelStyle: userPreferences.travelStyle || 'balanced',
+        budget: userPreferences.budget || 'mid-range',
+        interests: Array.isArray(userPreferences.interests) 
+          ? userPreferences.interests.map((i: any) => i.label || i).join(',')
+          : '',
+        travelGroup: userPreferences.travelGroup || 'solo',
+        generationQuality: userPreferences.generationQuality || 'standard',
+        useExternalData: options.useTripadvisor || options.useGoogleMaps || false
+      };
+
+      const cacheKey = options.cacheKey || createEnhancedCacheKey('itinerary', cacheParams);
+
+      // Check cache first
+      const cachedResult = responseCache.get(cacheKey);
+      if (cachedResult) {
+        console.log('Returning cached itinerary result');
+        return cachedResult;
+      }
+
+      // Report progress
+      if (onProgress) onProgress('Preparing your travel plan...');
+
+      // Generate the comprehensive prompt
+      const prompt = promptTemplates.createComprehensiveItineraryPrompt(
+        destination,
+        formattedStartDate,
+        formattedEndDate,
+        userPreferences
+      );
+
+      console.log('Generating itinerary with prompt length:', prompt.length);
+
+      // Report progress
+      if (onProgress) onProgress('Generating your personalized itinerary...');
+
+      // Mobile-specific timeout and retry settings
+      const mobileTimeout = isMobile ? 45000 : 30000; // Longer timeout for mobile
+      const mobileRetries = isMobile ? 2 : 1; // More retries for mobile
+
+      // Make the API call with mobile-optimized settings
+      const response = await withRetry(
+        async () => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), mobileTimeout);
+          
+          try {
+            const result = await openai.chat.completions.create({
+              model: userPreferences.generationQuality === 'premium' ? 'gpt-4' : 'gpt-3.5-turbo',
+              messages: [{ role: 'user', content: prompt }],
+              max_tokens: userPreferences.generationQuality === 'premium' ? 4000 : 3000,
+              temperature: 0.7,
+              signal: options.signal || controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
+            return result;
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
+        },
+        {
+          maxRetries: mobileRetries,
+          baseDelay: isMobile ? 2000 : 1000,
+          maxDelay: isMobile ? 8000 : 5000,
+          shouldRetry: (error) => {
+            // Mobile-specific retry logic
+            if (isMobile) {
+              return error.name === 'AbortError' || 
+                     error.message?.includes('network') ||
+                     error.message?.includes('timeout') ||
+                     error.message?.includes('Failed to fetch') ||
+                     (isIOS && error.message?.includes('TypeError'));
+            }
+            return error.name === 'AbortError' || error.message?.includes('network');
+          }
+        }
+      );
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('Failed to generate itinerary - empty response');
+      }
+
+      // Report progress
+      if (onProgress) onProgress('Processing your itinerary...');
+
+      let parsedData;
+      try {
+        parsedData = JSON.parse(content);
+      } catch (e) {
+        console.error('Failed to parse itinerary JSON:', e);
+        throw new Error('Failed to parse itinerary response');
+      }
+
+      // Validate and structure the response
+      const itineraryData = this.validateAndStructureItinerary(parsedData);
+
+      // Report progress
+      if (onProgress) onProgress('Finalizing your travel plan...');
+
+      // Cache the result
+      responseCache.set(cacheKey, itineraryData);
+
+      return itineraryData;
+
+    } catch (error: any) {
+      console.error('Error generating complete itinerary:', error);
+      
+      // Enhanced mobile-specific error handling
+      if (isMobile) {
+        if (error.name === 'AbortError') {
+          throw new Error('Request timed out on mobile device. Please check your connection and try again.');
+        }
+        
+        if (error.message?.includes('Failed to fetch') || error.message?.includes('TypeError')) {
+          if (isIOS) {
+            throw new Error('iOS/Safari compatibility issue detected. Try using a different browser like Chrome or Firefox, or switch to cellular data.');
+          } else {
+            throw new Error('Mobile network issue detected. Try switching between WiFi and cellular data, or move to a location with better signal.');
+          }
+        }
+        
+        if (error.message?.includes('SecurityError') || error.message?.includes('NotAllowedError')) {
+          throw new Error('Mobile browser security restriction. Try clearing your browser cache and cookies, then refresh the page.');
+        }
+      }
+
+      // Enhanced error context for debugging
+      const errorContext = {
+        destination,
+        startDate: formattedStartDate,
+        endDate: formattedEndDate,
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+        isMobile,
+        isIOS,
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+        timestamp: new Date().toISOString()
+      };
+
+      console.error('Error context:', errorContext);
+
+      // Handle specific error types with user-friendly messages
+      if (error.message?.includes('rate limit') || error.status === 429) {
+        throw new Error('OpenAI API rate limit exceeded. Please wait a moment and try again.');
+      }
+
+      if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        throw new Error('Network error occurred. Please check your connection and try again.');
+      }
+
+      // Generic fallback error
+      throw new Error(`Failed to generate itinerary: ${(error as Error).message || 'Unknown error'}`);
+    }
   },
   
   /**
@@ -1242,6 +1232,54 @@ Return a JSON object with the merged preferences (current + new):
       // Return the current preferences if extraction fails
       return currentPreferences;
     }
+  },
+
+  // Add the new validateAndStructureItinerary method
+  validateAndStructureItinerary(itineraryData: any) {
+    // Validate and structure the itinerary data
+    if (!itineraryData || typeof itineraryData !== 'object') {
+      throw new Error('Invalid itinerary data received');
+    }
+
+    // Ensure we have the required structure
+    const structuredData = {
+      title: itineraryData.title || 'Your Travel Itinerary',
+      destination: itineraryData.destination || '',
+      startDate: itineraryData.startDate || '',
+      endDate: itineraryData.endDate || '',
+      days: Array.isArray(itineraryData.days) ? itineraryData.days : [],
+      summary: itineraryData.summary || '',
+      tips: Array.isArray(itineraryData.tips) ? itineraryData.tips : [],
+      budget: itineraryData.budget || null
+    };
+
+    // Validate days array
+    if (structuredData.days.length === 0) {
+      throw new Error('No itinerary days found in the response');
+    }
+
+    // Validate each day structure
+    structuredData.days = structuredData.days.map((day: any, index: number) => ({
+      day: day.day || index + 1,
+      date: day.date || '',
+      title: day.title || `Day ${index + 1}`,
+      activities: Array.isArray(day.activities) ? day.activities.map((activity: any) => ({
+        id: activity.id || `activity-${index}-${Math.random().toString(36).substr(2, 9)}`,
+        time: activity.time || '',
+        title: activity.title || 'Untitled Activity',
+        description: activity.description || '',
+        location: activity.location || '',
+        duration: activity.duration || '',
+        cost: activity.cost || '',
+        tips: Array.isArray(activity.tips) ? activity.tips : [],
+        category: activity.category || 'general',
+        coordinates: activity.coordinates || null,
+        rating: activity.rating || null,
+        photos: Array.isArray(activity.photos) ? activity.photos : []
+      })) : []
+    }));
+
+    return structuredData;
   }
 };
 
