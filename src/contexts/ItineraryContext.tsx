@@ -240,24 +240,31 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]); // Include user in dependency array
 
-  // Load the user's most recent itinerary from Supabase when they log in
+  // Load user's most recent itinerary when user signs in
   useEffect(() => {
-    // Only run for authenticated users
-    if (!user) {
+    // Only load if we have a user and we haven't loaded from storage yet
+    if (!user || hasLoadedFromStorage.current || isRefreshing.current) {
       return;
     }
-    
-    // Skip if we've already loaded or if we have data
-    if (hasLoadedFromStorage.current || itineraryDays.length > 0 || currentItineraryId) {
-      return;
-    }
-    
-    // Mark as loaded to prevent future runs
+
+    // Set the flag to prevent loading again
     hasLoadedFromStorage.current = true;
     
     const loadUserMostRecentItinerary = async () => {
       try {
         console.log('Loading most recent itinerary for authenticated user:', user.id);
+        
+        // Set loading state
+        setIsLoading(true);
+        
+        // Check if Supabase is configured before making the request
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        
+        if (!supabaseUrl || !supabaseAnonKey) {
+          console.warn('Supabase not configured - skipping itinerary loading');
+          return;
+        }
         
         // Get all user itineraries and find the most recent one
         const itineraries = await databaseService.getUserItineraries(user.id);
@@ -289,10 +296,22 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
         }
       } catch (error) {
         console.error('Error loading user most recent itinerary:', error);
+        // Don't block the UI if there's an error loading itineraries
+        hasLoadedFromStorage.current = false; // Allow retry
+      } finally {
+        // Always clear loading state
+        setIsLoading(false);
       }
     };
     
-    loadUserMostRecentItinerary();
+    // Add a small delay to ensure the user context is fully settled
+    const timeoutId = setTimeout(() => {
+      loadUserMostRecentItinerary();
+    }, 500);
+    
+    return () => {
+      clearTimeout(timeoutId);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]); // Run when user changes (login/logout)
 

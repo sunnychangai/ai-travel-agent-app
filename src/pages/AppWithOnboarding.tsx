@@ -2,10 +2,10 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Home from '@/components/home';
 import Onboarding from './Onboarding';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/services/supabase';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import { useToast } from '@/components/ui/use-toast';
-import { ItineraryProvider, useItinerary } from '@/contexts/ItineraryContext';
+import { useItinerary } from '@/contexts/ItineraryContext';
 
 // Wrapper component to handle loading itineraries from URL
 const HomeWithItineraryLoader = () => {
@@ -57,15 +57,6 @@ const HomeWithItineraryLoader = () => {
   );
 };
 
-// New component that wraps HomeWithItineraryLoader with the ItineraryProvider
-const ItineraryApp = () => {
-  return (
-    <ItineraryProvider>
-      <HomeWithItineraryLoader />
-    </ItineraryProvider>
-  );
-};
-
 export default function AppWithOnboarding() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -79,6 +70,25 @@ export default function AppWithOnboarding() {
   // Detect mobile device for better error handling
   const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+  // Add global timeout for loading state - force app to load after 15 seconds maximum
+  useEffect(() => {
+    const globalTimeout = setTimeout(() => {
+      console.warn('GLOBAL TIMEOUT: App taking too long to load - forcing ready state');
+      setForceReady(true);
+      setPreferencesTimeout(true);
+      setAuthChecked(true);
+      setLoadingMessage('Ready!');
+      
+      // Show onboarding as fallback if nothing is ready
+      const onboardingDismissed = localStorage.getItem('onboardingDismissed');
+      if (!onboardingDismissed) {
+        setShowOnboarding(true);
+      }
+    }, 15000); // 15 second global timeout
+
+    return () => clearTimeout(globalTimeout);
+  }, []);
 
   // Add aggressive timeout for mobile devices - force app to load after 10 seconds
   useEffect(() => {
@@ -361,14 +371,12 @@ export default function AppWithOnboarding() {
   return (
     <>
       {showOnboarding ? (
-        <ItineraryProvider>
-          <Onboarding 
-            onComplete={handleOnboardingComplete} 
-            key="onboarding-modal"
-          />
-        </ItineraryProvider>
+        <Onboarding 
+          onComplete={handleOnboardingComplete} 
+          key="onboarding-modal"
+        />
       ) : (
-        <ItineraryApp />
+        <HomeWithItineraryLoader />
       )}
     </>
   );
