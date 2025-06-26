@@ -105,7 +105,8 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     addDay,
     currentItineraryTitle,
     setCurrentItineraryTitle,
-    getCurrentItineraryTitle
+    getCurrentItineraryTitle,
+    currentItineraryId
   } = useItinerary();
   const { toast } = useToast(); // Add toast hook
   
@@ -211,6 +212,12 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
     }
     
     if (shouldProceed) {
+      // Don't auto-generate titles if we're loading an existing itinerary
+      if (currentItineraryId) {
+        console.log('Auto-title generation - skipped: loading existing itinerary with ID:', currentItineraryId);
+        return;
+      }
+      
       // First check if there's an activity with "city" or "destination" type
       let destinationActivity = activities.find(activity => 
         activity.type?.toLowerCase().includes('destination') ||
@@ -267,6 +274,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
       console.log('Auto-title generation - extracted destination:', destination);
       console.log('Auto-title generation - current title:', currentItineraryTitle);
       console.log('Auto-title generation - hasUserEditedTitle:', hasUserEditedTitle.current);
+      console.log('Auto-title generation - currentItineraryId:', currentItineraryId);
       
       // Only proceed if we found a meaningful destination
       if (destination) {
@@ -314,7 +322,7 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
         console.log('Auto-title generation - skipped: no meaningful destination found');
       }
     }
-  }, [itineraryDays, setCurrentItineraryTitle, currentItineraryTitle]);
+  }, [itineraryDays, setCurrentItineraryTitle, currentItineraryId]);
 
   // Update selected day when the current selected day has no activities
   useEffect(() => {
