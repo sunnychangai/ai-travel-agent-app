@@ -293,7 +293,7 @@ export const enhancedOpenAIService = {
         }, {
           signal,
         }), {
-          shouldRetry: (error) => {
+          shouldRetry: (error: any) => {
             // Retry on network errors, rate limit errors, and certain OpenAI API errors
             if (error instanceof ApiError) {
               return (
@@ -367,16 +367,20 @@ export const enhancedOpenAIService = {
     },
     options: { signal?: AbortSignal } = {}
   ) {
+    // Format dates consistently
+    const formattedStartDate = startDate;
+    const formattedEndDate = endDate;
+    
     // Calculate number of days with safe date parsing
-    const start = safeParseDate(startDate);
-    const end = safeParseDate(endDate);
+    const start = safeParseDate(formattedStartDate);
+    const end = safeParseDate(formattedEndDate);
     const dayCount = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     
     // Create enhanced cache keys with proper specificity
     const baseKeyParams = {
       destination,
-      startDate,
-      endDate,
+      startDate: formattedStartDate,
+      endDate: formattedEndDate,
       interests: interests.join(','),
       travelStyle: preferences.travelStyle,
       budget: preferences.budget,
@@ -447,13 +451,13 @@ export const enhancedOpenAIService = {
     // Step 3 & 4: Run balancing and personalization in parallel instead of sequentially
     const draftItinerary = {
       destination,
-      startDate,
-      endDate,
+      startDate: formattedStartDate,
+      endDate: formattedEndDate,
       interests,
       preferences,
       days: dailyPlans.map((plan, i) => {
         // Create a Date object for this day by adding i days to the start date
-        const currentDate = safeParseDate(startDate);
+        const currentDate = safeParseDate(formattedStartDate);
         currentDate.setDate(currentDate.getDate() + i);
         
         return {
@@ -469,8 +473,8 @@ export const enhancedOpenAIService = {
       this.processRequestWithSwr({
         prompt: promptTemplates.ITINERARY_BALANCING_PROMPT
           .replace('{destination}', destination)
-          .replace('{startDate}', startDate)
-          .replace('{endDate}', endDate)
+          .replace('{startDate}', formattedStartDate)
+          .replace('{endDate}', formattedEndDate)
           .replace('{draftItinerary}', JSON.stringify(draftItinerary)),
         temperature: 0.7,
         cacheKey: createEnhancedCacheKey('balanced', {
@@ -504,8 +508,8 @@ export const enhancedOpenAIService = {
       ...(balancedItinerary as any),
       ...(personalizedItinerary as any),
       destination,
-      startDate,
-      endDate
+      startDate: formattedStartDate,
+      endDate: formattedEndDate
     };
   },
   
@@ -680,8 +684,8 @@ export const enhancedOpenAIService = {
       // Report progress
       if (onProgress) onProgress('Preparing your travel plan...');
 
-      // Generate the comprehensive prompt
-      const prompt = promptTemplates.createComprehensiveItineraryPrompt(
+      // Generate the comprehensive prompt - use the existing createItineraryPrompt method
+      const prompt = this.createItineraryPrompt(
         destination,
         formattedStartDate,
         formattedEndDate,
@@ -709,6 +713,8 @@ export const enhancedOpenAIService = {
               messages: [{ role: 'user', content: prompt }],
               max_tokens: userPreferences.generationQuality === 'premium' ? 4000 : 3000,
               temperature: 0.7,
+              response_format: { type: 'json_object' },
+            }, {
               signal: options.signal || controller.signal,
             });
             
@@ -721,9 +727,9 @@ export const enhancedOpenAIService = {
         },
         {
           maxRetries: mobileRetries,
-          baseDelay: isMobile ? 2000 : 1000,
+          initialDelay: isMobile ? 2000 : 1000,
           maxDelay: isMobile ? 8000 : 5000,
-          shouldRetry: (error) => {
+          shouldRetry: (error: any) => {
             // Mobile-specific retry logic
             if (isMobile) {
               return error.name === 'AbortError' || 
@@ -789,8 +795,8 @@ export const enhancedOpenAIService = {
       // Enhanced error context for debugging
       const errorContext = {
         destination,
-        startDate: formattedStartDate,
-        endDate: formattedEndDate,
+        startDate: typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0],
+        endDate: typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0],
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
         isMobile,
         isIOS,
@@ -1283,4 +1289,4 @@ Return a JSON object with the merged preferences (current + new):
   }
 };
 
-export default enhancedOpenAIService; 
+export default enhancedOpenAIService;
