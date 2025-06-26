@@ -63,51 +63,154 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Detect mobile device for better error handling
+  const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+
   // Load user preferences from Supabase on initial render and auth state change
   useEffect(() => {
+    let loadingTimeout: NodeJS.Timeout;
+    let isComponentMounted = true;
+
     const loadPreferences = async () => {
       try {
         setIsLoading(true);
+        setError(null);
+
+        // Set a timeout for mobile devices to prevent infinite loading
+        if (isMobile) {
+          loadingTimeout = setTimeout(() => {
+            if (isComponentMounted) {
+              console.warn('Mobile preferences loading timeout - proceeding without preferences');
+              setUserPreferences(null);
+              setIsLoading(false);
+            }
+          }, 8000); // 8 second timeout for mobile
+        }
+
         await refreshPreferences();
-      } catch (error) {
+        
+        // Clear timeout if successful
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout);
+        }
+      } catch (error: any) {
         console.error('Error loading preferences:', error);
-        setError('Failed to load user preferences');
-        toast({
-          title: "Error",
-          description: "Failed to load your preferences. Please try again later.",
-          variant: "destructive",
-        });
+        
+        if (isComponentMounted) {
+          // Mobile-specific error handling
+          if (isMobile) {
+            console.warn('Mobile preferences loading failed - proceeding without preferences');
+            setUserPreferences(null);
+            setError(null); // Don't show error toast on mobile for preferences
+          } else {
+            setError('Failed to load user preferences');
+            toast({
+              title: "Error",
+              description: "Failed to load your preferences. Please try again later.",
+              variant: "destructive",
+            });
+          }
+        }
       } finally {
-        setIsLoading(false);
+        if (isComponentMounted) {
+          setIsLoading(false);
+        }
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout);
+        }
       }
     };
 
-    // Check if user is authenticated
+    // Check if user is authenticated with mobile-specific timeout
     const checkAuth = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        loadPreferences();
-      } else {
-        setUserPreferences(null);
-        setIsLoading(false);
+      try {
+        // Add timeout for mobile auth check
+        const authPromise = supabase.auth.getSession();
+        
+        let timeoutPromise: Promise<never> | null = null;
+        if (isMobile) {
+          timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Mobile auth timeout')), 5000)
+          );
+        }
+
+        const { data } = isMobile 
+          ? await Promise.race([authPromise, timeoutPromise!])
+          : await authPromise;
+
+        if (isComponentMounted) {
+          if (data.session) {
+            await loadPreferences();
+          } else {
+            setUserPreferences(null);
+            setIsLoading(false);
+          }
+        }
+      } catch (error: any) {
+        console.error('Auth check error:', error);
+        
+        if (isComponentMounted) {
+          if (isMobile && error.message === 'Mobile auth timeout') {
+            console.warn('Mobile auth timeout - proceeding without authentication check');
+            setUserPreferences(null);
+            setIsLoading(false);
+          } else {
+            setUserPreferences(null);
+            setIsLoading(false);
+          }
+        }
       }
     };
 
     checkAuth();
 
-    // Subscribe to auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event) => {
-      if (event === 'SIGNED_IN') {
-        loadPreferences();
-      } else if (event === 'SIGNED_OUT') {
-        setUserPreferences(null);
+    // Subscribe to auth changes with mobile-specific handling
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isComponentMounted) return;
+
+      console.log('Auth state change:', event, 'isMobile:', isMobile);
+
+      try {
+        if (event === 'SIGNED_IN' && session) {
+          // Add a small delay for mobile devices to ensure session is fully established
+          if (isMobile) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          if (isComponentMounted) {
+            await loadPreferences();
+          }
+        } else if (event === 'SIGNED_OUT') {
+          if (isComponentMounted) {
+            setUserPreferences(null);
+            setIsLoading(false);
+          }
+        }
+      } catch (error: any) {
+        console.error('Auth state change error:', error);
+        
+        if (isComponentMounted) {
+          if (isMobile) {
+            // On mobile, don't block the UI if preferences fail to load
+            console.warn('Mobile preferences loading failed during auth change - proceeding without preferences');
+            setUserPreferences(null);
+            setIsLoading(false);
+          } else {
+            setError('Failed to sync preferences after authentication');
+          }
+        }
       }
     });
 
     return () => {
+      isComponentMounted = false;
+      if (loadingTimeout) {
+        clearTimeout(loadingTimeout);
+      }
       authListener.subscription.unsubscribe();
     };
-  }, [toast]);
+  }, [toast, isMobile]);
 
   // Save/Update user preferences in Supabase
   const savePreferences = async (preferences: Partial<UserPreferences>): Promise<void> => {
@@ -174,7 +277,7 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
         title: "Success",
         description: "Your preferences have been saved.",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving preferences:', error);
       setError('Failed to save preferences');
       
@@ -193,27 +296,57 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
   // Get current user preferences from Supabase
   const getUserPreferences = async (): Promise<UserPreferences | null> => {
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Get current user with mobile timeout
+      const userPromise = supabase.auth.getUser();
+      
+      let result;
+      if (isMobile) {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Mobile user fetch timeout')), 5000)
+        );
+        result = await Promise.race([userPromise, timeoutPromise]);
+      } else {
+        result = await userPromise;
+      }
+
+      const { data: { user } } = result;
       
       if (!user) {
         return null;
       }
 
-      const { data, error } = await supabase
+      // Fetch preferences with mobile timeout
+      const prefsPromise = supabase
         .from('user_preferences')
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
+
+      let prefsResult;
+      if (isMobile) {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Mobile preferences fetch timeout')), 5000)
+        );
+        prefsResult = await Promise.race([prefsPromise, timeoutPromise]);
+      } else {
+        prefsResult = await prefsPromise;
+      }
+
+      const { data, error } = prefsResult;
 
       if (error) {
         throw error;
       }
 
       return data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching user preferences:', error);
-      setError('Failed to fetch preferences');
+      
+      // On mobile, don't set error state for preferences fetch failures
+      if (!isMobile) {
+        setError('Failed to fetch preferences');
+      }
+      
       return null;
     }
   };
@@ -224,9 +357,13 @@ export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = (
       const preferences = await getUserPreferences();
       setUserPreferences(preferences);
       setError(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error refreshing preferences:', error);
-      setError('Failed to refresh preferences');
+      
+      // On mobile, don't set error state for refresh failures
+      if (!isMobile) {
+        setError('Failed to refresh preferences');
+      }
     }
   };
 

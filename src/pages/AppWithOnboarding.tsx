@@ -69,16 +69,54 @@ const ItineraryApp = () => {
 export default function AppWithOnboarding() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Loading...');
   const navigate = useNavigate();
   const { toast } = useToast();
   const { userPreferences, loading: preferencesLoading, refreshPreferences } = useUserPreferences();
 
+  // Detect mobile device for better error handling
+  const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+
   // Check user authentication only once
   useEffect(() => {
+    let authTimeout: NodeJS.Timeout;
+    let isComponentMounted = true;
+
     const checkUserAuth = async () => {
       try {
-        console.log("Checking user authentication...");
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        console.log("Checking user authentication... (mobile:", isMobile, ")");
+        setLoadingMessage(isMobile ? 'Signing in...' : 'Loading...');
+        
+        // Set timeout for mobile devices to prevent infinite loading
+        if (isMobile) {
+          authTimeout = setTimeout(() => {
+            if (isComponentMounted) {
+              console.warn('Mobile auth check timeout - redirecting to auth');
+              toast({
+                title: "Connection Issue",
+                description: "Taking longer than expected. Please try again.",
+                variant: "destructive",
+              });
+              navigate('/auth');
+            }
+          }, 10000); // 10 second timeout for mobile
+        }
+
+        // Add timeout wrapper for mobile auth calls
+        const sessionPromise = supabase.auth.getSession();
+        let sessionResult;
+
+        if (isMobile) {
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Mobile session timeout')), 8000)
+          );
+          sessionResult = await Promise.race([sessionPromise, timeoutPromise]);
+        } else {
+          sessionResult = await sessionPromise;
+        }
+
+        const { data: sessionData, error: sessionError } = sessionResult;
         
         if (sessionError) {
           console.error("Error getting session:", sessionError);
@@ -87,12 +125,28 @@ export default function AppWithOnboarding() {
         
         if (!sessionData.session) {
           console.log("No active session, redirecting to auth");
-          navigate('/auth');
+          if (isComponentMounted) {
+            navigate('/auth');
+          }
           return;
         }
         
-        // Get user details
-        const { data: userData, error: userError } = await supabase.auth.getUser();
+        // Get user details with mobile timeout
+        setLoadingMessage(isMobile ? 'Getting your profile...' : 'Loading...');
+        
+        const userPromise = supabase.auth.getUser();
+        let userResult;
+
+        if (isMobile) {
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Mobile user timeout')), 5000)
+          );
+          userResult = await Promise.race([userPromise, timeoutPromise]);
+        } else {
+          userResult = await userPromise;
+        }
+
+        const { data: userData, error: userError } = userResult;
         
         if (userError) {
           console.error("Error getting user:", userError);
@@ -101,7 +155,9 @@ export default function AppWithOnboarding() {
         
         if (!userData.user) {
           console.log("No authenticated user, redirecting to auth");
-          navigate('/auth');
+          if (isComponentMounted) {
+            navigate('/auth');
+          }
           return;
         }
         
@@ -117,23 +173,53 @@ export default function AppWithOnboarding() {
           localStorage.removeItem('onboardingDismissed');
         }
         
-        setAuthChecked(true);
-      } catch (error) {
+        if (isComponentMounted) {
+          setAuthChecked(true);
+        }
+
+        // Clear timeout if successful
+        if (authTimeout) {
+          clearTimeout(authTimeout);
+        }
+      } catch (error: any) {
         console.error('Error checking auth:', error);
-        toast({
-          title: "Authentication Error",
-          description: "Please sign in again.",
-          variant: "destructive",
-        });
-        navigate('/auth');
+        
+        if (isComponentMounted) {
+          if (isMobile && (error.message === 'Mobile session timeout' || error.message === 'Mobile user timeout')) {
+            console.warn('Mobile auth timeout - redirecting to auth page');
+            toast({
+              title: "Connection Issue",
+              description: isIOS 
+                ? "Please check your connection and try switching between WiFi and cellular data."
+                : "Please check your internet connection and try again.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Authentication Error",
+              description: "Please sign in again.",
+              variant: "destructive",
+            });
+          }
+          navigate('/auth');
+        }
       }
     };
     
     checkUserAuth();
-  }, [navigate, toast]);
+
+    return () => {
+      isComponentMounted = false;
+      if (authTimeout) {
+        clearTimeout(authTimeout);
+      }
+    };
+  }, [navigate, toast, isMobile, isIOS]);
 
   // Determine if we should show onboarding only when preferences are loaded
   useEffect(() => {
+    let onboardingTimeout: NodeJS.Timeout;
+
     if (authChecked && !preferencesLoading) {
       const onboardingDismissed = localStorage.getItem('onboardingDismissed');
       
@@ -141,7 +227,8 @@ export default function AppWithOnboarding() {
         authChecked,
         preferencesLoading,
         userPreferences: userPreferences || 'none',
-        onboardingDismissed
+        onboardingDismissed,
+        isMobile
       });
       
       // Show onboarding if either:
@@ -152,8 +239,20 @@ export default function AppWithOnboarding() {
       
       console.log("Should show onboarding:", shouldShowOnboarding);
       setShowOnboarding(shouldShowOnboarding);
+    } else if (authChecked && preferencesLoading && isMobile) {
+      // Set a timeout for mobile preferences loading to prevent infinite loading
+      onboardingTimeout = setTimeout(() => {
+        console.warn('Mobile preferences loading timeout - proceeding without onboarding check');
+        setShowOnboarding(false);
+      }, 5000);
     }
-  }, [userPreferences, preferencesLoading, authChecked]);
+
+    return () => {
+      if (onboardingTimeout) {
+        clearTimeout(onboardingTimeout);
+      }
+    };
+  }, [userPreferences, preferencesLoading, authChecked, isMobile]);
 
   const handleOnboardingComplete = useCallback(async () => {
     console.log("Onboarding completed callback triggered");
@@ -161,15 +260,29 @@ export default function AppWithOnboarding() {
     setShowOnboarding(false);
     
     // Make sure preferences are refreshed after onboarding completes
-    await refreshPreferences();
-    console.log("Preferences refreshed after onboarding completion");
+    try {
+      await refreshPreferences();
+      console.log("Preferences refreshed after onboarding completion");
+    } catch (error) {
+      console.error("Error refreshing preferences after onboarding:", error);
+      // Don't block the UI if preferences refresh fails
+    }
   }, [refreshPreferences]);
 
-  // Show loading only during initial auth check or when preferences are loading
+  // Show loading with mobile-specific messages and timeout handling
   if (!authChecked || (authChecked && preferencesLoading)) {
-    return <div className="flex items-center justify-center h-screen">
-      <div className="text-lg">Loading...</div>
-    </div>;
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="text-lg mb-2">{loadingMessage}</div>
+          {isMobile && (
+            <div className="text-sm text-gray-500">
+              This may take a moment on mobile devices...
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
