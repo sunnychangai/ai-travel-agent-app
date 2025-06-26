@@ -497,12 +497,21 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
         savePreviousItinerary();
       }
       
-      // Clear existing itinerary - both session storage and state
+      // Clear existing itinerary - both localStorage and state
       clearSessionStorage();
       
       // First clear the existing days before adding new ones
       // This is critical to prevent accumulation of days
       clearItineraryDays();
+      
+      // Clear chat messages when starting a completely new itinerary
+      // This provides a clean slate for the new trip planning session
+      try {
+        localStorage.removeItem('chat_messages_session');
+        console.log('Cleared chat messages for new itinerary generation');
+      } catch (error) {
+        console.error('Error clearing chat messages:', error);
+      }
       
       // Wait a small time to ensure clearing is complete
       await new Promise(resolve => setTimeout(resolve, 50));

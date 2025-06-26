@@ -4,31 +4,31 @@ import { getActivityIdSafely } from '../utils/activityUtils';
 import { useAuth } from './AuthContext';
 import { databaseService } from '../services/databaseService';
 
-// Storage keys
+// Storage keys - using localStorage for persistence across refreshes
 const STORAGE_KEYS = {
-  ITINERARY_DAYS: 'itinerary_days_session',
-  CURRENT_ITINERARY_ID: 'current_itinerary_id_session',
-  CURRENT_ITINERARY_TITLE: 'current_itinerary_title_session',
-  PREVIOUS_ITINERARY: 'previous_itinerary_session'
+  ITINERARY_DAYS: 'itinerary_days_persistent',
+  CURRENT_ITINERARY_ID: 'current_itinerary_id_persistent', 
+  CURRENT_ITINERARY_TITLE: 'current_itinerary_title_persistent',
+  PREVIOUS_ITINERARY: 'previous_itinerary_session' // Keep this as session for temporary restore
 };
 
-// Utility function to safely get items from sessionStorage
-const getSessionItem = <T,>(key: string, defaultValue: T): T => {
+// Utility function to safely get items from localStorage
+const getStorageItem = <T,>(key: string, defaultValue: T): T => {
   try {
-    const item = sessionStorage.getItem(key);
+    const item = localStorage.getItem(key);
     return item ? JSON.parse(item) : defaultValue;
   } catch (error) {
-    console.error(`Error retrieving ${key} from sessionStorage:`, error);
+    console.error(`Error retrieving ${key} from localStorage:`, error);
     return defaultValue;
   }
 };
 
-// Utility function to safely set items in sessionStorage
-const setSessionItem = (key: string, value: any): void => {
+// Utility function to safely set items in localStorage
+const setStorageItem = (key: string, value: any): void => {
   try {
-    sessionStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
-    console.error(`Error saving ${key} to sessionStorage:`, error);
+    console.error(`Error saving ${key} to localStorage:`, error);
   }
 };
 
@@ -78,15 +78,15 @@ interface ItineraryProviderProps {
 
 export const ItineraryProvider = ({ children, initialItinerary = [], initialSuggestions = [] }: ItineraryProviderProps) => {
   const [itineraryDays, setItineraryDays] = useState<ItineraryDay[]>(
-    () => getSessionItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, initialItinerary)
+    () => getStorageItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, initialItinerary)
   );
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>(initialSuggestions);
   const [isLoading, setIsLoading] = useState(false);
   const [currentItineraryId, setCurrentItineraryId] = useState<string | null>(
-    () => getSessionItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null)
+    () => getStorageItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null)
   );
   const [currentItineraryTitle, setCurrentItineraryTitle] = useState<string>(
-    () => getSessionItem<string>(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, 'My Itinerary')
+    () => getStorageItem<string>(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, 'My Itinerary')
   );
   const { user } = useAuth();
   
@@ -96,39 +96,59 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
   // Add a ref to track if we've loaded from localStorage
   const hasLoadedFromStorage = useRef(false);
   
-  // Reset loading flag when user changes
+  // Add a ref to track initial load to prevent clearing data on first render
+  const isInitialLoad = useRef(true);
+  
+  // Handle user changes more carefully to preserve data
   useEffect(() => {
-    hasLoadedFromStorage.current = false;
-    
-    // Clear session storage when user changes to prevent conflicts
-    // This ensures each user gets a fresh start
-    try {
-      sessionStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
-      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
-      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
-      sessionStorage.removeItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
-      console.log('Cleared session storage for user change');
-    } catch (error) {
-      console.error('Error clearing session storage on user change:', error);
+    // Skip on initial load to allow data restoration
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      return;
     }
     
-    // Also reset the itinerary state to prevent showing previous user's data
+    hasLoadedFromStorage.current = false;
+    
+    // Only clear data when actually switching between different users
     if (user) {
-      // Only clear state if we're switching to a different user
-      // Don't clear on initial load
-      const currentUserId = sessionStorage.getItem('currentUserId');
-      if (currentUserId && currentUserId !== user.id) {
+      const currentUserId = localStorage.getItem('currentUserId');
+      const isUserSwitch = currentUserId && currentUserId !== user.id;
+      
+      if (isUserSwitch) {
+        // Clear data only when switching to a different user
+        try {
+          localStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+          localStorage.removeItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
+          console.log('Cleared session storage for user switch');
+        } catch (error) {
+          console.error('Error clearing session storage on user switch:', error);
+        }
+        
         setItineraryDays([]);
         setCurrentItineraryId(null);
         setCurrentItineraryTitle('My Itinerary');
       }
-      sessionStorage.setItem('currentUserId', user.id);
+      
+      // Update current user ID
+      localStorage.setItem('currentUserId', user.id);
     } else {
       // User logged out, clear everything
+      try {
+        localStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+        localStorage.removeItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
+        localStorage.removeItem('currentUserId');
+        console.log('Cleared session storage for user logout');
+      } catch (error) {
+        console.error('Error clearing session storage on user logout:', error);
+      }
+      
       setItineraryDays([]);
       setCurrentItineraryId(null);
       setCurrentItineraryTitle('My Itinerary');
-      sessionStorage.removeItem('currentUserId');
     }
   }, [user]);
 
@@ -174,42 +194,10 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
     }
   }, [itineraryDays, destination]);
 
-  // Initialize from sessionStorage if available
-  useEffect(() => {
-    // Only run this effect once on mount
-    const stored = getSessionItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, initialItinerary);
-    if (stored.length > 0) {
-      setItineraryDays(stored);
-    }
-    setSuggestions(initialSuggestions);
-    setCurrentItineraryId(getSessionItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array to run only on mount
-
-  // Update sessionStorage whenever itineraryDays changes
-  useEffect(() => {
-    setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, itineraryDays);
-  }, [itineraryDays]);
-
-  // Update sessionStorage whenever currentItineraryId changes
-  useEffect(() => {
-    setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, currentItineraryId);
-  }, [currentItineraryId]);
-
-  // Update sessionStorage whenever currentItineraryTitle changes
-  useEffect(() => {
-    setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, currentItineraryTitle);
-  }, [currentItineraryTitle]);
-
-  // Load the most recent itinerary from localStorage on initialization if needed
+  // Initialize from localStorage if available
   useEffect(() => {
     // Skip if we've already loaded or if we have data
     if (hasLoadedFromStorage.current || itineraryDays.length > 0 || currentItineraryId) {
-      return;
-    }
-    
-    // Only load from localStorage for unauthenticated users
-    if (user) {
       return;
     }
     
@@ -217,6 +205,20 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
     hasLoadedFromStorage.current = true;
     
     try {
+      // First try to load from persistent localStorage keys
+      const persistentDays = getStorageItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, []);
+      const persistentId = getStorageItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null);
+      const persistentTitle = getStorageItem<string>(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, 'My Itinerary');
+      
+      if (persistentDays.length > 0 && persistentId) {
+        console.log('Found persistent itinerary data, loading:', persistentTitle);
+        setItineraryDays(persistentDays);
+        setCurrentItineraryId(persistentId);
+        setCurrentItineraryTitle(persistentTitle);
+        return;
+      }
+      
+      // If no persistent data, try to load from mostRecentItinerary (fallback for older versions)
       const mostRecentData = localStorage.getItem('mostRecentItinerary');
       
       if (mostRecentData) {
@@ -229,34 +231,32 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
         setCurrentItineraryId(itineraryData.id);
         setCurrentItineraryTitle(itineraryData.title || 'My Itinerary');
         
-        // Also update session storage
-        setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, itineraryData.days || []);
-        setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itineraryData.id);
-        setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, itineraryData.title || 'My Itinerary');
+        // Also update persistent localStorage keys
+        setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, itineraryData.days || []);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itineraryData.id);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, itineraryData.title || 'My Itinerary');
       }
     } catch (error) {
       console.error('Error loading most recent itinerary:', error);
     }
+  // Only run on initial mount - no dependencies
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]); // Include user in dependency array
+  }, []);
 
-  // Load user's most recent itinerary when user signs in
+  // Load user's most recent itinerary when user signs in (for authenticated users)
   useEffect(() => {
-    // Skip automatic loading to prevent loading issues
-    // Users can manually load their itineraries from the My Trips page
     if (!user) {
       return;
     }
 
-    // Just clear any existing data when user changes
-    const currentUserId = sessionStorage.getItem('currentUserId');
-    if (currentUserId && currentUserId !== user.id) {
-      setItineraryDays([]);
-      setCurrentItineraryId(null);
-      setCurrentItineraryTitle('My Itinerary');
+    // For authenticated users, try to load their most recent itinerary from Supabase
+    // But only if we don't already have data loaded
+    if (itineraryDays.length === 0 && !currentItineraryId) {
+      // Don't auto-load for now to prevent conflicts
+      // Users can manually load their itineraries from the My Trips page
+      console.log('User signed in, but not auto-loading itinerary to prevent conflicts');
     }
-    sessionStorage.setItem('currentUserId', user.id);
-  }, [user]);
+  }, [user, itineraryDays.length, currentItineraryId]);
 
   // Memoize sorted itinerary days to prevent recalculations
   const sortedItineraryDays = useMemo(() => {
@@ -525,7 +525,7 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
     // Debounce multiple refresh calls
     const currentTimestamp = Date.now();
     const lastRefreshKey = 'lastItineraryRefresh';
-    const lastRefresh = parseInt(sessionStorage.getItem(lastRefreshKey) || '0');
+    const lastRefresh = parseInt(localStorage.getItem(lastRefreshKey) || '0');
     
     // If we refreshed recently (within last 2 seconds), skip this refresh
     if (currentTimestamp - lastRefresh < 2000) {
@@ -537,7 +537,7 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
     }
     
     // Update last refresh timestamp
-    sessionStorage.setItem(lastRefreshKey, currentTimestamp.toString());
+    localStorage.setItem(lastRefreshKey, currentTimestamp.toString());
     
     // Make a copy of the current state to force a re-render
     setItineraryDays(prevDays => {
@@ -751,17 +751,17 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
       // Simulate an API call delay
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // First check sessionStorage
-      const sessionItineraryId = getSessionItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null);
-      const sessionDays = getSessionItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, []);
+      // First check localStorage
+      const localStorageItineraryId = getStorageItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null);
+      const localStorageDays = getStorageItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, []);
       
-      // If the session has the requested itinerary, use it
-      if (sessionItineraryId === itineraryId && sessionDays.length > 0) {
-        setItineraryDays(sessionDays);
+      // If the localStorage has the requested itinerary, use it
+      if (localStorageItineraryId === itineraryId && localStorageDays.length > 0) {
+        setItineraryDays(localStorageDays);
         setCurrentItineraryId(itineraryId);
-        // Also restore title if available in session storage
-        const sessionTitle = getSessionItem<string>(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, 'My Itinerary');
-        setCurrentItineraryTitle(sessionTitle);
+        // Also restore title if available in localStorage
+        const localStorageTitle = getStorageItem<string>(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, 'My Itinerary');
+        setCurrentItineraryTitle(localStorageTitle);
         
         // Force UI refresh after loading
         setTimeout(() => forceRefresh(), 100);
@@ -803,10 +803,10 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
         setCurrentItineraryId(itineraryId);
         setCurrentItineraryTitle(title);
         
-        // Update sessionStorage
-        setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, days);
-        setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itineraryId);
-        setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, title);
+        // Update localStorage
+        setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, days);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itineraryId);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, title);
         
         // Also save as most recent for localStorage users
         if (!user) {
@@ -880,15 +880,15 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
     }
   }, [user]);
 
-  // Clear session storage
+  // Clear localStorage
   const clearSessionStorage = useCallback(() => {
     try {
       console.log('[ItineraryContext] Starting clearSessionStorage process');
       
-      // We'll only clear session storage but not the state immediately
-      sessionStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
-      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
-      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+      // We'll only clear localStorage but not the state immediately
+      localStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
       
       // Set current ID to null and reset title
       setCurrentItineraryId(null);
@@ -910,8 +910,8 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
           currentId: currentItineraryId,
           title: itineraryDays.length > 0 ? 'Previous Itinerary' : ''
         };
-        setSessionItem(STORAGE_KEYS.PREVIOUS_ITINERARY, itineraryToSave);
-        console.log('Previous itinerary saved to session storage');
+        localStorage.setItem(STORAGE_KEYS.PREVIOUS_ITINERARY, JSON.stringify(itineraryToSave));
+        console.log('Previous itinerary saved to localStorage');
       }
     } catch (error) {
       console.error('Error saving previous itinerary:', error);
@@ -921,7 +921,7 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
   // Check if there's a previous itinerary available
   const hasPreviousItinerary = useCallback(() => {
     try {
-      const previousItinerary = sessionStorage.getItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
+      const previousItinerary = localStorage.getItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
       return previousItinerary !== null && previousItinerary !== undefined;
     } catch (error) {
       console.error('Error checking for previous itinerary:', error);
@@ -932,7 +932,7 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
   // Restore the previous itinerary
   const restorePreviousItinerary = useCallback(() => {
     try {
-      const previousItineraryJson = sessionStorage.getItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
+      const previousItineraryJson = localStorage.getItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
       if (!previousItineraryJson) {
         console.log('No previous itinerary found');
         return false;
@@ -945,9 +945,9 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
         setItineraryDays(previousItinerary.days);
         setCurrentItineraryId(previousItinerary.currentId || null);
         
-        // Update session storage
-        setSessionItem(STORAGE_KEYS.ITINERARY_DAYS, previousItinerary.days);
-        setSessionItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, previousItinerary.currentId);
+        // Update localStorage
+        setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, previousItinerary.days);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, previousItinerary.currentId);
         
         console.log('Previous itinerary restored');
         return true;
@@ -965,12 +965,12 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
     console.log('[ItineraryContext] Clearing all itinerary days from state');
     setItineraryDays([]);
     
-    // Also ensure session storage is cleared
+    // Also ensure localStorage is cleared
     try {
-      sessionStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
-      console.log('[ItineraryContext] Cleared itinerary days from session storage');
+      localStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+      console.log('[ItineraryContext] Cleared itinerary days from localStorage');
     } catch (error) {
-      console.error('Error clearing itinerary days from session storage:', error);
+      console.error('Error clearing itinerary days from localStorage:', error);
     }
   }, []);
 
@@ -1005,7 +1005,7 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
       setCurrentItineraryId(null);
       setCurrentItineraryTitle('My Itinerary');
       
-      // Clear session storage
+      // Clear localStorage
       clearSessionStorage();
       
       // Force a UI refresh
@@ -1016,6 +1016,30 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
       setIsLoading(false);
     }
   }, [user, clearSessionStorage, forceRefresh]);
+
+  // Update localStorage whenever itineraryDays changes
+  useEffect(() => {
+    setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, itineraryDays);
+  }, [itineraryDays]);
+
+  // Update localStorage whenever currentItineraryId changes
+  useEffect(() => {
+    setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, currentItineraryId);
+  }, [currentItineraryId]);
+
+  // Update localStorage whenever currentItineraryTitle changes
+  useEffect(() => {
+    setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, currentItineraryTitle);
+  }, [currentItineraryTitle]);
+
+  // Initialize from localStorage if available
+  useEffect(() => {
+    // Only run this effect once on mount
+    setSuggestions(initialSuggestions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array to run only on mount
+
+  // Load the most recent itinerary from localStorage on initialization if needed
 
   return (
     <ItineraryContext.Provider
