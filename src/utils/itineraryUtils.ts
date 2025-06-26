@@ -148,8 +148,24 @@ export function convertItineraryApiToContext(apiItinerary: any): {
     
     // Convert activities to the expected format
     const activities: Activity[] = (dayData.activities || []).map((activityData: any) => {
-      // Extract time information
-      const timeStr = activityData.time || '12:00 PM';
+      // Extract time information and handle numeric values
+      let timeStr = activityData.time || '12:00 PM';
+      
+      // Check if the time is a numeric value (representing minutes)
+      if (typeof timeStr === 'number' || (typeof timeStr === 'string' && !isNaN(parseInt(timeStr, 10)) && timeStr === parseInt(timeStr, 10).toString())) {
+        // Convert numeric minutes to proper time string
+        const minutes = typeof timeStr === 'number' ? timeStr : parseInt(timeStr, 10);
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        
+        // Convert to 12-hour format
+        let period = hours >= 12 ? 'PM' : 'AM';
+        let displayHours = hours % 12;
+        if (displayHours === 0) displayHours = 12;
+        
+        timeStr = `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
+        console.log(`Converted numeric time ${activityData.time} to ${timeStr}`);
+      }
       
       // Create the activity object
       return {

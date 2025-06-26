@@ -86,17 +86,18 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
     [flattenedItems]
   );
 
+  // Always call the hook but let it handle the disabled state
   const {
     virtualItems,
     totalHeight,
     scrollRef,
     handleScroll
-  } = useVirtualization
-    ? useVirtualizedList(flattenedItems!, {
-        itemHeight: ACTIVITY_CARD_HEIGHT,
-        overscan: 5
-      })
-    : { virtualItems: null, totalHeight: 0, scrollRef: null, handleScroll: null };
+  } = useVirtualizedList(flattenedItems || [], {
+    itemHeight: ACTIVITY_CARD_HEIGHT,
+    overscan: 5,
+    // Disable virtualization when not needed
+    disabled: !useVirtualization
+  });
 
   // Memoize handler functions
   const handleEditActivity = useCallback((dayNumber: number, id: string) => {
@@ -241,13 +242,19 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
     [days.length]
   );
 
+  // Pre-compute sorted activities for all days to avoid calling useMemo in a loop
+  const sortedActivitiesByDay = useMemo(() => {
+    const sortedMap = new Map();
+    daysWithActivities.forEach(day => {
+      sortedMap.set(day.dayNumber, sortActivitiesByTime(day.activities));
+    });
+    return sortedMap;
+  }, [daysWithActivities]);
+
   return (
     <div className={dayListContainerClass}>
       {daysWithActivities.map((day, index) => {
-        const sortedActivities = useMemo(() => 
-          sortActivitiesByTime(day.activities),
-          [day.activities]
-        );
+        const sortedActivities = sortedActivitiesByDay.get(day.dayNumber) || [];
 
         return (
           <div key={day.dayNumber} className={`${index === 0 && days.length > 1 ? "" : ""}`}>

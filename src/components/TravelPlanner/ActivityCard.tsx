@@ -36,7 +36,8 @@ const ActivityCard = React.memo<ActivityCardProps>(({
   
   // Memoize derived values
   const rawStartTime = useMemo(() => activity.time?.split(" - ")[0] || "", [activity.time]);
-  const startTime = useMemo(() => convertToAMPM(rawStartTime), [rawStartTime]);
+  // Force recalculation of startTime to ensure conversion happens
+  const startTime = convertToAMPM(rawStartTime);
   const typeStyles = useMemo(() => getActivityTypeStyles(activity.type), [activity.type]);
   const title = useMemo(() => activity.title, [activity.title]);
   const description = useMemo(() => activity.description, [activity.description]);

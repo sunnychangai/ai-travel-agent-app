@@ -7,6 +7,8 @@ interface VirtualizedListOptions {
   estimatedItemHeight?: number;
   // Option to use ResizeObserver for dynamic heights
   measureItemsInDom?: boolean;
+  // Option to disable virtualization
+  disabled?: boolean;
 }
 
 /**
@@ -27,7 +29,8 @@ export function useVirtualizedList<T>(
     overscan = 5, 
     initialIndex = 0,
     estimatedItemHeight = 0,
-    measureItemsInDom = false
+    measureItemsInDom = false,
+    disabled = false
   } = options;
   
   const [scrollTop, setScrollTop] = useState(initialIndex * 
@@ -286,14 +289,14 @@ export function useVirtualizedList<T>(
   }, [measureItemsInDom]);
 
   return {
-    virtualItems,
-    totalHeight,
-    startIndex,
-    endIndex,
-    scrollRef,
-    handleScroll: memoizedHandleScroll,
-    scrollToIndex,
-    measureElement
+    virtualItems: disabled ? null : virtualItems,
+    totalHeight: disabled ? 0 : totalHeight,
+    startIndex: disabled ? 0 : startIndex,
+    endIndex: disabled ? 0 : endIndex,
+    scrollRef: disabled ? null : scrollRef,
+    handleScroll: disabled ? null : memoizedHandleScroll,
+    scrollToIndex: disabled ? () => {} : scrollToIndex,
+    measureElement: disabled ? () => {} : measureElement
   };
 }
 

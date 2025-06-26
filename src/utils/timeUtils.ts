@@ -2,22 +2,56 @@ import { memoizedSort, calculationCache } from './memoizationUtils';
 
 /**
  * Converts a time string (in 12-hour format) to minutes for comparison
- * @param timeString Time string in format "HH:MM AM/PM" or "HH:MM AM/PM - HH:MM AM/PM"
+ * @param timeString Time string in format "HH:MM AM/PM" or "HH:MM AM/PM - HH:MM AM/PM", or numeric minutes as string
  * @returns Total minutes from midnight
  */
 export const timeToMinutes = calculationCache.memoize((timeString: string): number => {
   if (!timeString) return 0;
   
+  // Check if it's already a numeric string (representing minutes)
+  const numericValue = parseInt(timeString, 10);
+  if (!isNaN(numericValue) && timeString === numericValue.toString()) {
+    // This is already a numeric value representing minutes
+    return numericValue;
+  }
+  
   // Extract just the start time if it's a range
   const startTime = timeString.split(" - ")[0];
   
-  // Parse hours and minutes
-  const [hoursStr, minutesStr] = startTime.split(":");
-  const hours = parseInt(hoursStr, 10);
-  const minutes = parseInt(minutesStr, 10);
+  // Handle AM/PM format
+  if (startTime.includes('AM') || startTime.includes('PM')) {
+    // Parse 12-hour format
+    const match = startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (match) {
+      const [_, hoursStr, minutesStr, period] = match;
+      let hours = parseInt(hoursStr, 10);
+      const minutes = parseInt(minutesStr, 10);
+      
+      // Convert to 24-hour format
+      if (period.toUpperCase() === 'PM' && hours < 12) {
+        hours += 12;
+      } else if (period.toUpperCase() === 'AM' && hours === 12) {
+        hours = 0;
+      }
+      
+      return hours * 60 + minutes;
+    }
+  }
   
-  // Convert to total minutes
-  return hours * 60 + minutes;
+  // Handle 24-hour format (HH:MM)
+  if (startTime.includes(':')) {
+    const [hoursStr, minutesStr] = startTime.split(":");
+    const hours = parseInt(hoursStr, 10);
+    const minutes = parseInt(minutesStr, 10);
+    
+    if (!isNaN(hours) && !isNaN(minutes)) {
+      return hours * 60 + minutes;
+    }
+  }
+  
+  // If we can't parse it, return 0
+  console.warn(`Could not parse time format: ${timeString}`);
+  return 0;
 });
 
 /**
@@ -66,7 +100,7 @@ export const convertTo24Hour = calculationCache.memoize((timeStr: string): strin
  * @param timeStr Time string in "HH:MM" 24-hour format, or numeric minutes as string
  * @returns Time string in "HH:MM AM/PM" format
  */
-export const convertToAMPM = calculationCache.memoize((timeStr: string): string => {
+export const convertToAMPM = (timeStr: string): string => {
   if (!timeStr) return '';
   
   // If already in 12-hour format (has AM/PM), return as is
@@ -85,7 +119,7 @@ export const convertToAMPM = calculationCache.memoize((timeStr: string): string 
   const parts = timeStr.split(':');
   if (parts.length !== 2) {
     // If it's not in expected format, return empty string
-    console.warn(`Invalid time format: ${timeStr}`);
+    console.warn(`[convertToAMPM] Invalid time format: ${timeStr}`);
     return '';
   }
   
@@ -93,7 +127,7 @@ export const convertToAMPM = calculationCache.memoize((timeStr: string): string 
   let hoursNum = parseInt(hours, 10);
   
   if (isNaN(hoursNum)) {
-    console.warn(`Invalid hours in time: ${timeStr}`);
+    console.warn(`[convertToAMPM] Invalid hours in time: ${timeStr}`);
     return '';
   }
   
@@ -106,7 +140,7 @@ export const convertToAMPM = calculationCache.memoize((timeStr: string): string 
   }
   
   return `${hoursNum}:${minutes} ${period}`;
-});
+};
 
 /**
  * Formats start and end times into a readable time range
@@ -191,8 +225,10 @@ export const parseTimeString = calculationCache.memoize((timeString: string): an
  * @param minutes Total minutes from midnight (e.g., 60 = 1:00 AM, 720 = 12:00 PM)
  * @returns Time string in "HH:MM AM/PM" format
  */
-export const minutesToTimeString = calculationCache.memoize((minutes: number): string => {
-  if (isNaN(minutes) || minutes < 0) return '';
+export const minutesToTimeString = (minutes: number): string => {
+  if (isNaN(minutes) || minutes < 0) {
+    return '';
+  }
   
   // Handle values over 24 hours by taking modulo
   const totalMinutes = minutes % (24 * 60);
@@ -206,4 +242,4 @@ export const minutesToTimeString = calculationCache.memoize((minutes: number): s
   if (displayHours === 0) displayHours = 12;
   
   return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
-}); 
+}; 
