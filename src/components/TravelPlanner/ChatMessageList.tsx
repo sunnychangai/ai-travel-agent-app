@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
 import { Virtuoso } from "react-virtuoso";
+import { renderEnhancedMarkdown } from "../../utils/markdownRenderer";
 
 type Message = {
   id: string;
@@ -52,7 +53,7 @@ const ChatMessage = memo(({ message, isFirstMessage }: { message: Message; isFir
           : "bg-gray-200 text-gray-900 rounded-tl-md rounded-tr-2xl rounded-bl-2xl rounded-br-2xl max-w-[75%] border border-gray-200"
       )}
     >
-      <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+      <div className="text-sm whitespace-pre-wrap leading-relaxed">{renderEnhancedMarkdown(message.content)}</div>
       <p className={cn(
         "text-xs mt-1",
         message.sender === "user" ? "text-blue-100" : "text-gray-500"

@@ -307,8 +307,8 @@ export const openaiService = {
         address: restaurant.vicinity || restaurant.formatted_address,
         rating: restaurant.rating || 'No rating available',
         price_level: restaurant.price_level !== undefined ? '$'.repeat(restaurant.price_level) : 'Price not available',
-        open_now: restaurant.opening_hours?.open_now !== undefined ? 
-          (restaurant.opening_hours.open_now ? 'Open now' : 'Closed') : 'Hours not available'
+        open_now: restaurant.opening_hours?.isOpen !== undefined ? 
+          (restaurant.opening_hours.isOpen ? 'Open now' : 'Closed') : 'Hours not available'
       }));
       
       const prompt = `Based on the following restaurants in ${destination} and the traveler's cuisine preferences (${cuisinePreferences.join(', ')}), 

@@ -1,0 +1,1777 @@
+import React, { createContext, useContext, useReducer, ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Activity, ItineraryDay, SuggestionItem } from '../types';
+import { getActivityIdSafely } from '../utils/activityUtils';
+import { useAuth } from './AuthContext';
+import { databaseService } from '../services/databaseService';
+import { debouncedStorage } from '../utils/cacheUtils';
+import { conversationFlowManager } from '../services/conversationFlowManager';
+
+// Storage keys - using localStorage for persistence across refreshes
+const STORAGE_KEYS = {
+  ITINERARY_DAYS: 'itinerary_days_persistent',
+  CURRENT_ITINERARY_ID: 'current_itinerary_id_persistent', 
+  CURRENT_ITINERARY_TITLE: 'current_itinerary_title_persistent',
+  PREVIOUS_ITINERARY: 'previous_itinerary_session' // Keep this as session for temporary restore
+};
+
+// **PERFORMANCE OPTIMIZATION: Utility functions using debounced localStorage**
+const getStorageItem = <T,>(key: string, defaultValue: T): T => {
+  return debouncedStorage.getItem(key, defaultValue);
+};
+
+const setStorageItem = (key: string, value: any): void => {
+  debouncedStorage.setItem(key, value);
+};
+
+// **PERFORMANCE OPTIMIZATION: Immediate storage operations for critical data**
+const setStorageItemImmediate = (key: string, value: any): void => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error(`Error saving ${key} to localStorage immediately:`, error);
+  }
+};
+
+const removeStorageItem = (key: string): void => {
+  debouncedStorage.removeItem(key);
+};
+
+const removeStorageItemImmediate = (key: string): void => {
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {
+    console.error(`Error removing ${key} from localStorage:`, error);
+  }
+};
+
+// **PERFORMANCE OPTIMIZATION: State management with useReducer**
+
+// Combined state interface for useReducer
+interface ItineraryState {
+  itineraryDays: ItineraryDay[];
+  suggestions: SuggestionItem[];
+  isLoading: boolean;
+  currentItineraryId: string | null;
+  currentItineraryTitle: string;
+}
+
+// Action types for state updates
+type ItineraryAction =
+  | { type: 'SET_ITINERARY_DAYS'; payload: ItineraryDay[] }
+  | { type: 'ADD_ITINERARY_DAY'; payload: ItineraryDay }
+  | { type: 'UPDATE_ITINERARY_DAY'; payload: { dayNumber: number; day: ItineraryDay } }
+  | { type: 'REMOVE_ITINERARY_DAY'; payload: number }
+  | { type: 'ADD_ACTIVITY'; payload: { dayNumber: number; activity: Activity } }
+  | { type: 'UPDATE_ACTIVITY'; payload: { dayNumber: number; activityId: string; updatedActivity: Partial<Activity> } }
+  | { type: 'DELETE_ACTIVITY'; payload: { dayNumber: number; activityId: string } }
+  | { type: 'SET_SUGGESTIONS'; payload: SuggestionItem[] }
+  | { type: 'ADD_SUGGESTION'; payload: SuggestionItem }
+  | { type: 'REMOVE_SUGGESTION'; payload: string }
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_CURRENT_ITINERARY_ID'; payload: string | null }
+  | { type: 'SET_CURRENT_ITINERARY_TITLE'; payload: string }
+  | { type: 'CLEAR_ITINERARY' }
+  | { type: 'LOAD_ITINERARY'; payload: { days: ItineraryDay[]; id: string; title: string } };
+
+// **PERFORMANCE OPTIMIZATION: Optimized reducer with activity sorting**
+const sortActivitiesByTime = (activities: Activity[]): Activity[] => {
+  if (!activities || activities.length <= 1) {
+    return activities;
+  }
+  
+  return [...activities].sort((a, b) => {
+    const getMinutes = (timeStr: string): number => {
+      if (!timeStr) return 0;
+      
+      const startTime = timeStr.split(" - ")[0];
+      let hours = 0;
+      let minutes = 0;
+      
+      if (startTime.includes("AM") || startTime.includes("PM")) {
+        const match = startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+        if (match) {
+          const [_, h, m, period] = match;
+          hours = parseInt(h, 10);
+          minutes = parseInt(m, 10);
+          
+          if (period.toUpperCase() === "PM" && hours < 12) {
+            hours += 12;
+          } else if (period.toUpperCase() === "AM" && hours === 12) {
+            hours = 0;
+          }
+        }
+      } else {
+        const parts = startTime.split(":");
+        if (parts.length === 2) {
+          hours = parseInt(parts[0], 10);
+          minutes = parseInt(parts[1], 10);
+        }
+      }
+      
+      return hours * 60 + minutes;
+    };
+    
+    const timeA = getMinutes(a.time || '');
+    const timeB = getMinutes(b.time || '');
+    return timeA - timeB;
+  });
+};
+
+// Reducer function for managing itinerary state - PURE FUNCTION (no side effects)
+const itineraryReducer = (state: ItineraryState, action: ItineraryAction): ItineraryState => {
+  switch (action.type) {
+    case 'SET_ITINERARY_DAYS':
+      return { ...state, itineraryDays: action.payload };
+      
+    case 'ADD_ITINERARY_DAY': {
+      const newDay = action.payload;
+      const existingDayIndex = state.itineraryDays.findIndex(d => d.dayNumber === newDay.dayNumber);
+      
+      if (existingDayIndex !== -1) {
+        // Replace existing day
+        const updatedDays = [...state.itineraryDays];
+        updatedDays[existingDayIndex] = newDay;
+        return { ...state, itineraryDays: updatedDays };
+      } else {
+        // Add new day and sort
+        const newDays = [...state.itineraryDays, newDay];
+        const sortedDays = newDays.sort((a, b) => a.dayNumber - b.dayNumber);
+        return { ...state, itineraryDays: sortedDays };
+      }
+    }
+    
+    case 'UPDATE_ITINERARY_DAY': {
+      const { dayNumber, day } = action.payload;
+      const dayIndex = state.itineraryDays.findIndex(d => d.dayNumber === dayNumber);
+      
+      if (dayIndex === -1) return state;
+      
+      const updatedDays = [...state.itineraryDays];
+      updatedDays[dayIndex] = day;
+      return { ...state, itineraryDays: updatedDays };
+    }
+    
+    case 'REMOVE_ITINERARY_DAY':
+      return {
+        ...state,
+        itineraryDays: state.itineraryDays.filter(day => day.dayNumber !== action.payload)
+      };
+      
+    case 'ADD_ACTIVITY': {
+      const { dayNumber, activity } = action.payload;
+      const dayIndex = state.itineraryDays.findIndex(day => day.dayNumber === dayNumber);
+      
+      if (dayIndex === -1) return state;
+      
+      const newDays = [...state.itineraryDays];
+      const updatedActivities = [...newDays[dayIndex].activities, activity];
+      const sortedActivities = sortActivitiesByTime(updatedActivities);
+      
+      newDays[dayIndex] = {
+        ...newDays[dayIndex],
+        activities: sortedActivities,
+      };
+      
+      return { ...state, itineraryDays: newDays };
+    }
+    
+    case 'UPDATE_ACTIVITY': {
+      const { dayNumber, activityId, updatedActivity } = action.payload;
+      const dayIndex = state.itineraryDays.findIndex(day => day.dayNumber === dayNumber);
+      
+      if (dayIndex === -1) return state;
+      
+      const activityIndex = state.itineraryDays[dayIndex].activities.findIndex(
+        activity => activity.id === activityId
+      );
+      
+      if (activityIndex === -1) return state;
+      
+      const newDays = [...state.itineraryDays];
+      const updatedActivities = [
+        ...newDays[dayIndex].activities.slice(0, activityIndex),
+        {
+          ...newDays[dayIndex].activities[activityIndex],
+          ...updatedActivity,
+        },
+        ...newDays[dayIndex].activities.slice(activityIndex + 1),
+      ];
+      
+      const sortedActivities = sortActivitiesByTime(updatedActivities);
+      
+      newDays[dayIndex] = {
+        ...newDays[dayIndex],
+        activities: sortedActivities,
+      };
+      
+      return { ...state, itineraryDays: newDays };
+    }
+    
+    case 'DELETE_ACTIVITY': {
+      const { dayNumber, activityId } = action.payload;
+      const dayIndex = state.itineraryDays.findIndex(day => day.dayNumber === dayNumber);
+      
+      if (dayIndex === -1) return state;
+      
+      const newDays = [...state.itineraryDays];
+      newDays[dayIndex] = {
+        ...newDays[dayIndex],
+        activities: newDays[dayIndex].activities.filter(
+          activity => activity.id !== activityId
+        ),
+      };
+      
+      return { ...state, itineraryDays: newDays };
+    }
+    
+    case 'SET_SUGGESTIONS':
+      return { ...state, suggestions: action.payload };
+      
+    case 'ADD_SUGGESTION':
+      return { ...state, suggestions: [...state.suggestions, action.payload] };
+      
+    case 'REMOVE_SUGGESTION':
+      return {
+        ...state,
+        suggestions: state.suggestions.filter(s => s.id !== action.payload)
+      };
+      
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+      
+    case 'SET_CURRENT_ITINERARY_ID':
+      return { ...state, currentItineraryId: action.payload };
+      
+    case 'SET_CURRENT_ITINERARY_TITLE':
+      return { ...state, currentItineraryTitle: action.payload };
+      
+    case 'CLEAR_ITINERARY':
+      return {
+        ...state,
+        itineraryDays: [],
+        currentItineraryId: null,
+        currentItineraryTitle: 'My Itinerary'
+      };
+      
+    case 'LOAD_ITINERARY':
+      return {
+        ...state,
+        itineraryDays: action.payload.days,
+        currentItineraryId: action.payload.id,
+        currentItineraryTitle: action.payload.title
+      };
+      
+    default:
+      return state;
+  }
+};
+
+// **PERFORMANCE OPTIMIZATION: Split into separate contexts**
+// This prevents unnecessary re-renders when only data or only actions change
+
+// Data Context - Contains all the state data
+interface ItineraryDataContextType {
+  itineraryDays: ItineraryDay[];
+  suggestions: SuggestionItem[];
+  isLoading: boolean;
+  currentItineraryId: string | null;
+  currentItineraryTitle: string;
+  destination: string;
+  startDate: string;
+  endDate: string;
+  sortedItineraryDays: ItineraryDay[];
+}
+
+// Actions Context - Contains all the action functions
+interface ItineraryActionsContextType {
+  setCurrentItineraryTitle: (title: string) => void;
+  getCurrentItineraryTitle: () => string;
+  addActivity: (dayNumber: number, activity: Omit<Activity, 'id'>) => void;
+  updateActivity: (dayNumber: number, activityId: string, updatedActivity: Partial<Activity>) => void;
+  deleteActivity: (dayNumber: number, activityId: string) => void;
+  addDay: (day: ItineraryDay) => void;
+  deleteDay: (dayNumber: number) => void;
+  acceptSuggestion: (suggestion: SuggestionItem, dayNumber: number) => void;
+  rejectSuggestion: (suggestionId: string) => void;
+  setLoading: (loading: boolean) => void;
+  saveItinerary: (name: string) => Promise<string | null>;
+  loadItinerary: (itineraryId: string) => Promise<void>;
+  getUserItineraries: () => Promise<any[]>;
+  deleteItinerary: (itineraryId: string) => Promise<void>;
+  clearSessionStorage: () => void;
+  clearItineraryDays: () => void;
+  finishItineraryCreation: () => void;
+  savePreviousItinerary: () => void;
+  restorePreviousItinerary: () => boolean;
+  hasPreviousItinerary: () => boolean;
+  forceRefresh: () => void;
+}
+
+// Create separate contexts
+const ItineraryDataContext = createContext<ItineraryDataContextType | undefined>(undefined);
+const ItineraryActionsContext = createContext<ItineraryActionsContextType | undefined>(undefined);
+
+// **PERFORMANCE OPTIMIZATION: Custom hooks for accessing contexts**
+export const useItineraryData = () => {
+  const context = useContext(ItineraryDataContext);
+  if (context === undefined) {
+    throw new Error('useItineraryData must be used within an ItineraryProvider');
+  }
+  return context;
+};
+
+export const useItineraryActions = () => {
+  const context = useContext(ItineraryActionsContext);
+  if (context === undefined) {
+    throw new Error('useItineraryActions must be used within an ItineraryProvider');
+  }
+  return context;
+};
+
+// Legacy hook for backward compatibility - combines both contexts
+export const useItinerary = () => {
+  const data = useItineraryData();
+  const actions = useItineraryActions();
+  
+  // **PERFORMANCE OPTIMIZATION: Memoize the combined object**
+  return useMemo(() => ({
+    ...data,
+    ...actions
+  }), [data, actions]);
+};
+
+interface ItineraryProviderProps {
+  children: ReactNode;
+  initialItinerary?: ItineraryDay[];
+  initialSuggestions?: SuggestionItem[];
+}
+
+export const ItineraryProvider = ({ children, initialItinerary = [], initialSuggestions = [] }: ItineraryProviderProps) => {
+  // **PERFORMANCE OPTIMIZATION: Use refs for stable references**
+  const isRefreshing = useRef(false);
+  const hasLoadedFromStorage = useRef(false);
+  const isInitialLoad = useRef(true);
+  const isCreatingNewItinerary = useRef(false);
+  
+  // **PERFORMANCE OPTIMIZATION: Initialize state with empty values first, then validate and load**
+  const [state, dispatch] = useReducer(itineraryReducer, {
+    itineraryDays: initialItinerary, // Start empty, will load with validation
+    suggestions: initialSuggestions,
+    isLoading: false,
+    currentItineraryId: null, // Start null, will load with validation  
+    currentItineraryTitle: 'My Itinerary' // Start with default, will load with validation
+  });
+  
+  const { user } = useAuth();
+
+  // **PERFORMANCE OPTIMIZATION: Hash-based memoization for large arrays**
+  // Instead of depending on the full itineraryDays array, use a hash
+  const itineraryDaysHash = useMemo(() => 
+    state.itineraryDays.map(d => `${d.dayNumber}-${d.activities.length}-${d.date}`).join(','),
+    [state.itineraryDays]
+  );
+
+  // **PERFORMANCE OPTIMIZATION: Memoize sorted days with hash-based dependency**
+  const sortedItineraryDays = useMemo(() => {
+    return [...state.itineraryDays].sort((a, b) => a.dayNumber - b.dayNumber);
+  }, [itineraryDaysHash]);
+
+  // **PERFORMANCE OPTIMIZATION: Memoize derived values with stable dependencies**
+  const derivedValues = useMemo(() => {
+    // Default values
+    let startDate = new Date().toISOString().split('T')[0];
+    let endDate = startDate;
+    let destination = '';
+
+    if (sortedItineraryDays.length > 0) {
+      startDate = sortedItineraryDays[0]?.date || startDate;
+      endDate = sortedItineraryDays[sortedItineraryDays.length - 1]?.date || startDate;
+
+      // Extract destination from activities (only if we don't have one)
+      if (!destination) {
+        const allActivities = state.itineraryDays.flatMap(day => day.activities);
+        
+        if (allActivities.length > 0) {
+          const locationActivity = allActivities.find(a => a.location);
+          if (locationActivity?.location) {
+            const parts = locationActivity.location.split(',');
+            destination = parts.length > 1 ? parts[1].trim() : locationActivity.location;
+          }
+        }
+      }
+    }
+
+    return { startDate, endDate, destination };
+  }, [sortedItineraryDays, itineraryDaysHash]);
+
+  // Handle user changes more carefully to preserve data
+  useEffect(() => {
+    // Skip on initial load to allow data restoration
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      return;
+    }
+    
+    hasLoadedFromStorage.current = false;
+    
+    // Only clear data when actually switching between different users
+    if (user) {
+      const currentUserId = localStorage.getItem('currentUserId');
+      const isUserSwitch = currentUserId && currentUserId !== user.id;
+      
+      if (isUserSwitch) {
+        // Clear data only when switching to a different user
+        try {
+          localStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+          localStorage.removeItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
+          console.log('Cleared session storage for user switch');
+        } catch (error) {
+          console.error('Error clearing session storage on user switch:', error);
+        }
+        
+        dispatch({ type: 'CLEAR_ITINERARY' });
+      }
+      
+      // Update current user ID
+      localStorage.setItem('currentUserId', user.id);
+    } else {
+      // User logged out, clear everything
+      try {
+        localStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+        localStorage.removeItem(STORAGE_KEYS.PREVIOUS_ITINERARY);
+        localStorage.removeItem('currentUserId');
+        console.log('Cleared session storage for user logout');
+      } catch (error) {
+        console.error('Error clearing session storage on user logout:', error);
+      }
+      
+      dispatch({ type: 'CLEAR_ITINERARY' });
+    }
+  }, [user]);
+
+  // Load user's most recent itinerary when user signs in (for authenticated users)
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    // For authenticated users, try to load their most recent itinerary from Supabase
+    // Clear any potentially conflicting localStorage data first
+    const loadMostRecentItinerary = async () => {
+      try {
+        console.log('User signed in, attempting to load most recent itinerary from Supabase');
+        
+        // Check if we're creating a new itinerary
+        if (isCreatingNewItinerary.current) {
+          console.log('Skipping auto-load: new itinerary creation in progress');
+          return;
+        }
+        
+        // Get user's itineraries from Supabase
+        const userItineraries = await databaseService.getUserItineraries(user.id);
+        
+        if (userItineraries.length > 0) {
+          // Sort by most recent and load the first one
+          const sortedItineraries = userItineraries.sort((a: any, b: any) => 
+            new Date(b.created_at || b.createdAt || 0).getTime() - 
+            new Date(a.created_at || a.createdAt || 0).getTime()
+          );
+          
+          const mostRecentItinerary = sortedItineraries[0];
+          console.log('Loading most recent itinerary from Supabase:', mostRecentItinerary.name || mostRecentItinerary.title);
+          
+          // Check if the current localStorage data matches the user's most recent itinerary
+          const currentStoredId = getStorageItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null);
+          const currentStoredTitle = getStorageItem<string>(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, 'My Itinerary');
+          
+          const shouldReplace = !currentStoredId || 
+                               currentStoredId !== mostRecentItinerary.id ||
+                               currentStoredTitle !== (mostRecentItinerary.name || mostRecentItinerary.title);
+          
+          if (shouldReplace) {
+            console.log('Replacing localStorage data with authenticated user data from Supabase');
+            
+            // Clear potentially conflicting localStorage data
+            localStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+            localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+            localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+            localStorage.removeItem('mostRecentItinerary');
+            
+            // Load the itinerary data
+            const itinerary = mostRecentItinerary;
+            const days = itinerary.days || [];
+            const title = itinerary.name || itinerary.title || 'My Itinerary';
+            
+            // Update state
+            setItineraryDaysWithValidation(days);
+            dispatch({ type: 'SET_CURRENT_ITINERARY_ID', payload: itinerary.id });
+            dispatch({ type: 'SET_CURRENT_ITINERARY_TITLE', payload: title });
+            
+            // Update localStorage with the correct data
+            setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, days);
+            setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itinerary.id);
+            setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, title);
+            
+            console.log('Successfully loaded and synchronized most recent itinerary for authenticated user');
+          } else {
+            console.log('Current localStorage data matches user\'s most recent itinerary, no sync needed');
+          }
+        } else {
+          console.log('No saved itineraries found for authenticated user');
+          
+          // If user has no itineraries but localStorage has data, clear it to avoid confusion
+          if (state.currentItineraryId || state.itineraryDays.length > 0) {
+            console.log('Clearing localStorage data as authenticated user has no saved itineraries');
+            localStorage.removeItem(STORAGE_KEYS.ITINERARY_DAYS);
+            localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+            localStorage.removeItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+            localStorage.removeItem('mostRecentItinerary');
+            
+            dispatch({ type: 'CLEAR_ITINERARY' });
+          }
+        }
+      } catch (error) {
+        console.error('Error loading most recent itinerary for authenticated user:', error);
+        // Don't throw error - just log it as this is a convenience feature
+      }
+    };
+    
+    // Add small delay to ensure all initialization is complete
+    setTimeout(loadMostRecentItinerary, 500);
+  }, [user]); // Remove other dependencies to ensure this runs when user changes
+
+  // **PERFORMANCE OPTIMIZATION: The optimized sortedItineraryDays is already declared above**
+
+  // Add an activity to a specific day
+  const addActivity = useCallback((dayNumber: number, activity: Omit<Activity, 'id'>) => {
+    // Create the new activity with a unique ID using the centralized utility function
+    const newActivity: Activity = {
+      ...activity,
+      id: getActivityIdSafely(undefined),
+    };
+    
+    // **DESTINATION VALIDATION**: Validate activity location before adding
+    try {
+      const session = conversationFlowManager.getCurrentSession();
+      const conversationDestination = session?.destination;
+      
+      if (conversationDestination && newActivity.location) {
+        const conversationCity = conversationDestination.toLowerCase();
+        const activityLocation = newActivity.location.toLowerCase();
+        
+        // Check if activity is from wrong city
+        const isWrongCity = (() => {
+          if (conversationCity.includes('dallas') || conversationCity.includes('texas')) {
+            return activityLocation.includes('orlando') || activityLocation.includes('florida') ||
+                   activityLocation.includes('tokyo') || activityLocation.includes('japan');
+          }
+          if (conversationCity.includes('orlando') || conversationCity.includes('florida')) {
+            return activityLocation.includes('dallas') || activityLocation.includes('texas');
+          }
+          return false;
+        })();
+        
+        if (isWrongCity) {
+          console.log(`🚨 Blocking activity from wrong city: conversation="${conversationDestination}", activity location="${newActivity.location}"`);
+          return; // Don't add the activity
+        }
+      }
+    } catch (error) {
+      console.error('Error validating activity location:', error);
+    }
+    
+    dispatch({ type: 'ADD_ACTIVITY', payload: { dayNumber, activity: newActivity } });
+  }, []);
+
+  // **DESTINATION VALIDATION**: Filter itinerary days before setting
+  const setItineraryDaysWithValidation = useCallback((days: ItineraryDay[]) => {
+    try {
+      const session = conversationFlowManager.getCurrentSession();
+      const conversationDestination = session?.destination;
+      
+      if (conversationDestination && days.length > 0) {
+        const conversationCity = conversationDestination.toLowerCase();
+        
+        // Filter activities to remove wrong city ones
+        const filteredDays = days.map(day => {
+          const filteredActivities = day.activities.filter(activity => {
+            if (!activity.location) return true; // Keep activities without location
+            
+            const activityLocation = activity.location.toLowerCase();
+            
+            // Check if activity is from wrong city
+            const isWrongCity = (() => {
+              if (conversationCity.includes('dallas') || conversationCity.includes('texas')) {
+                return activityLocation.includes('orlando') || activityLocation.includes('florida') ||
+                       activityLocation.includes('tokyo') || activityLocation.includes('japan');
+              }
+              if (conversationCity.includes('orlando') || conversationCity.includes('florida')) {
+                return activityLocation.includes('dallas') || activityLocation.includes('texas');
+              }
+              return false;
+            })();
+            
+            if (isWrongCity) {
+              console.log(`🚨 Filtering out wrong city activity: conversation="${conversationDestination}", activity="${activity.title}" at "${activity.location}"`);
+              return false;
+            }
+            
+            return true;
+          });
+          
+          return {
+            ...day,
+            activities: filteredActivities
+          };
+        });
+        
+        // Only proceed if we still have meaningful data after filtering
+        const totalActivities = filteredDays.reduce((sum, day) => sum + day.activities.length, 0);
+        if (totalActivities > 0) {
+          dispatch({ type: 'SET_ITINERARY_DAYS', payload: filteredDays });
+        } else {
+          console.log('🚨 All activities filtered out due to city mismatch, clearing itinerary');
+          dispatch({ type: 'SET_ITINERARY_DAYS', payload: [] });
+        }
+      } else {
+        dispatch({ type: 'SET_ITINERARY_DAYS', payload: days });
+      }
+    } catch (error) {
+      console.error('Error validating itinerary days:', error);
+      dispatch({ type: 'SET_ITINERARY_DAYS', payload: days });
+    }
+  }, []);
+
+  // Update an existing activity
+  const updateActivity = useCallback((dayNumber: number, activityId: string, updatedActivity: Partial<Activity>) => {
+    dispatch({ type: 'UPDATE_ACTIVITY', payload: { dayNumber, activityId, updatedActivity } });
+  }, []);
+
+  // Delete an activity
+  const deleteActivity = useCallback((dayNumber: number, activityId: string) => {
+    dispatch({ type: 'DELETE_ACTIVITY', payload: { dayNumber, activityId } });
+  }, []);
+
+  // Add a new day to the itinerary
+  const addDay = useCallback((day: ItineraryDay) => {
+    // Skip add if the day object is invalid
+    if (!day || !day.dayNumber) {
+      console.warn('Attempted to add invalid day to itinerary');
+      return;
+    }
+    
+    console.log('[ItineraryContext] Adding day to itinerary:', {
+      dayNumber: day.dayNumber,
+      date: day.date,
+      activitiesCount: day.activities?.length || 0,
+      firstActivity: day.activities?.[0]?.title,
+      firstLocation: day.activities?.[0]?.location
+    });
+    
+    dispatch({ type: 'ADD_ITINERARY_DAY', payload: day });
+  }, []);
+
+  // Remove a day from the itinerary
+  const deleteDay = useCallback((dayNumber: number) => {
+    dispatch({ type: 'REMOVE_ITINERARY_DAY', payload: dayNumber });
+  }, []);
+
+  // Add a suggestion to a day
+  const acceptSuggestion = useCallback((suggestion: SuggestionItem, dayNumber: number) => {
+    // Convert suggestion to activity
+    const newActivity: Omit<Activity, 'id'> = {
+      title: suggestion.title,
+      description: suggestion.description,
+      location: suggestion.location,
+      time: "12:00 PM", // Default time
+      type: "Activity",
+      imageUrl: suggestion.imageUrl,
+    };
+    
+    // Add the new activity to the specified day
+    addActivity(dayNumber, newActivity);
+    
+    // Remove the suggestion from the list
+    dispatch({ type: 'REMOVE_SUGGESTION', payload: suggestion.id });
+  }, [addActivity]);
+
+  // Remove a suggestion
+  const rejectSuggestion = useCallback((suggestionId: string) => {
+    dispatch({ type: 'REMOVE_SUGGESTION', payload: suggestionId });
+  }, []);
+
+  // Force a refresh of the itinerary state
+  const forceRefresh = useCallback(() => {
+    // Skip if already refreshing to prevent update loops
+    if (isRefreshing.current) {
+      console.log('[ItineraryContext] Skipping refresh - already in progress');
+      return;
+    }
+    
+    console.log('[ItineraryContext] Forcing itinerary context refresh');
+    
+    // Set refreshing flag
+    isRefreshing.current = true;
+    
+    // Debounce multiple refresh calls
+    const currentTimestamp = Date.now();
+    const lastRefreshKey = 'lastItineraryRefresh';
+    const lastRefresh = parseInt(localStorage.getItem(lastRefreshKey) || '0');
+    
+    // If we refreshed recently (within last 2 seconds), skip this refresh
+    if (currentTimestamp - lastRefresh < 2000) {
+      console.log('[ItineraryContext] Skipping refresh - too soon after last refresh');
+      setTimeout(() => {
+        isRefreshing.current = false;
+      }, 100);
+      return;
+    }
+    
+    // Update last refresh timestamp
+    localStorage.setItem(lastRefreshKey, currentTimestamp.toString());
+    
+    // Make a copy of the current state to force a re-render with validation
+    setItineraryDaysWithValidation([...state.itineraryDays]);
+    
+    // Using a small timeout to reset the flag
+    setTimeout(() => {
+      isRefreshing.current = false;
+    }, 1000);
+  }, [state.itineraryDays, setItineraryDaysWithValidation]);
+
+  // **PERFORMANCE OPTIMIZATION: All remaining action functions as useCallback**
+  const loadItinerary = useCallback(async (itineraryId: string): Promise<void> => {
+    try {
+      dispatch({ type: 'SET_LOADING', payload: true });
+      
+      // Simulate an API call delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // First check localStorage
+      const localStorageItineraryId = getStorageItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null);
+      const localStorageDays = getStorageItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, []);
+      
+      // If the localStorage has the requested itinerary, use it
+      if (localStorageItineraryId === itineraryId && localStorageDays.length > 0) {
+        setItineraryDaysWithValidation(localStorageDays);
+        dispatch({ type: 'SET_CURRENT_ITINERARY_ID', payload: itineraryId });
+        // Also restore title if available in localStorage
+        const localStorageTitle = getStorageItem<string>(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, 'My Itinerary');
+        dispatch({ type: 'SET_CURRENT_ITINERARY_TITLE', payload: localStorageTitle });
+        
+        // Force UI refresh after loading
+        setTimeout(() => forceRefresh(), 100);
+        return;
+      }
+      
+      let itinerary = null;
+      
+      if (user) {
+        // For authenticated users, load from Supabase
+        try {
+          itinerary = await databaseService.getItinerary(itineraryId);
+          console.log('Loaded itinerary from Supabase:', itinerary);
+        } catch (error) {
+          console.error('Error loading from Supabase:', error);
+          throw new Error(`Itinerary with ID ${itineraryId} not found in Supabase`);
+        }
+      } else {
+        // For unauthenticated users, load from localStorage
+        const storageKey = 'itineraries';
+        const savedItineraries = localStorage.getItem(storageKey);
+        
+        if (savedItineraries) {
+          const itineraries = JSON.parse(savedItineraries);
+          itinerary = itineraries.find((item: any) => item.id === itineraryId);
+        }
+        
+        if (!itinerary) {
+          throw new Error(`Itinerary with ID ${itineraryId} not found in localStorage`);
+        }
+      }
+      
+      if (itinerary) {
+        // Set itinerary data - handle both Supabase and localStorage formats
+        const days = itinerary.days || [];
+        const title = itinerary.name || itinerary.title || 'My Itinerary';
+        
+        setItineraryDaysWithValidation(days);
+        dispatch({ type: 'SET_CURRENT_ITINERARY_ID', payload: itineraryId });
+        dispatch({ type: 'SET_CURRENT_ITINERARY_TITLE', payload: title });
+        
+        // Update localStorage
+        setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, days);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itineraryId);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, title);
+        
+        // Also save as most recent for localStorage users
+        if (!user) {
+          localStorage.setItem('mostRecentItinerary', JSON.stringify(itinerary));
+        }
+        
+        // Force UI refresh after loading
+        setTimeout(() => forceRefresh(), 100);
+        return;
+      }
+      
+      throw new Error(`Itinerary with ID ${itineraryId} not found`);
+    } catch (error) {
+      console.error('Error loading itinerary:', error);
+      throw error;
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  }, [user, forceRefresh, setItineraryDaysWithValidation]);
+
+  const getUserItineraries = useCallback(async (): Promise<any[]> => {
+    try {
+      dispatch({ type: 'SET_LOADING', payload: true });
+      
+      // Simulate an API call delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      if (user) {
+        // For authenticated users, load from Supabase
+        try {
+          const itineraries = await databaseService.getUserItineraries(user.id);
+          console.log('Loaded itineraries from Supabase:', itineraries);
+          
+          // Transform Supabase format to match the expected format
+          return itineraries.map((itinerary: any) => ({
+            id: itinerary.id,
+            title: itinerary.name,
+            destination: itinerary.destination,
+            startDate: itinerary.start_date,
+            endDate: itinerary.end_date,
+            days: itinerary.days,
+            createdAt: itinerary.created_at,
+            lastUpdated: itinerary.updated_at
+          }));
+        } catch (error) {
+          console.error('Error loading itineraries from Supabase:', error);
+          return [];
+        }
+      } else {
+        // For unauthenticated users, load from localStorage
+        const storageKey = 'itineraries';
+        const savedItems = localStorage.getItem(storageKey);
+        
+        if (savedItems) {
+          const parsedItems = JSON.parse(savedItems);
+          // Sort by creation date, newest first
+          parsedItems.sort((a: any, b: any) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          return parsedItems;
+        }
+        
+        return [];
+      }
+    } catch (error) {
+      console.error('Error getting user itineraries:', error);
+      return [];
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  }, [user]);
+
+  const deleteItinerary = useCallback(async (itineraryId: string): Promise<void> => {
+    try {
+      dispatch({ type: 'SET_LOADING', payload: true });
+      
+      if (user) {
+        // For authenticated users, delete from Supabase
+        await databaseService.deleteItinerary(itineraryId);
+      } else {
+        // For unauthenticated users, delete from localStorage
+        const storageKey = 'itineraries';
+        const savedItineraries = localStorage.getItem(storageKey);
+        
+        if (savedItineraries) {
+          const itineraries = JSON.parse(savedItineraries);
+          const newItineraries = itineraries.filter((item: any) => item.id !== itineraryId);
+          
+          localStorage.setItem(storageKey, JSON.stringify(newItineraries));
+        }
+      }
+      
+      // Clear the itinerary state
+      dispatch({ type: 'CLEAR_ITINERARY' });
+      
+              // Clear localStorage immediately (using direct operations to avoid circular dependency)
+        debouncedStorage.flush(); // Ensure any pending writes are completed first
+        removeStorageItemImmediate(STORAGE_KEYS.ITINERARY_DAYS);
+        removeStorageItemImmediate(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+        removeStorageItemImmediate(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+      
+      // Force a UI refresh
+      forceRefresh();
+    } catch (error) {
+      console.error('Error deleting itinerary:', error);
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  }, [user, forceRefresh]);
+
+  const clearSessionStorage = useCallback(() => {
+    try {
+      console.log('[ItineraryContext] Starting clearSessionStorage process');
+      
+      // Force immediate flush of any pending writes before clearing
+      debouncedStorage.flush();
+      
+      // Use immediate removal for user-initiated clearing
+      removeStorageItemImmediate(STORAGE_KEYS.ITINERARY_DAYS);
+      removeStorageItemImmediate(STORAGE_KEYS.CURRENT_ITINERARY_ID);
+      removeStorageItemImmediate(STORAGE_KEYS.CURRENT_ITINERARY_TITLE);
+      
+      // Set current ID to null and reset title
+      dispatch({ type: 'CLEAR_ITINERARY' });
+      
+      console.log('[ItineraryContext] Session storage cleared immediately');
+    } catch (error) {
+      console.error('Error clearing session storage:', error);
+    }
+  }, []);
+
+  const savePreviousItinerary = useCallback(() => {
+    try {
+      if (state.itineraryDays.length > 0) {
+        // Save the current itinerary as the previous one (immediate save for data preservation)
+        const itineraryToSave = {
+          days: state.itineraryDays,
+          currentId: state.currentItineraryId,
+          title: state.itineraryDays.length > 0 ? 'Previous Itinerary' : ''
+        };
+        setStorageItemImmediate(STORAGE_KEYS.PREVIOUS_ITINERARY, itineraryToSave);
+        console.log('Previous itinerary saved immediately to localStorage');
+      }
+    } catch (error) {
+      console.error('Error saving previous itinerary:', error);
+    }
+  }, [state.itineraryDays, state.currentItineraryId]);
+
+  const hasPreviousItinerary = useCallback(() => {
+    try {
+      // Check both pending writes and localStorage for previous itinerary
+      const previousItinerary = getStorageItem(STORAGE_KEYS.PREVIOUS_ITINERARY, null);
+      return previousItinerary !== null && previousItinerary !== undefined;
+    } catch (error) {
+      console.error('Error checking for previous itinerary:', error);
+      return false;
+    }
+  }, []);
+
+  const restorePreviousItinerary = useCallback(() => {
+    try {
+      const previousItinerary = getStorageItem(STORAGE_KEYS.PREVIOUS_ITINERARY, null);
+      if (!previousItinerary) {
+        console.log('No previous itinerary found');
+        return false;
+      }
+      
+      // Restore the itinerary days
+      if (previousItinerary.days && Array.isArray(previousItinerary.days)) {
+        setItineraryDaysWithValidation(previousItinerary.days);
+        dispatch({ type: 'SET_CURRENT_ITINERARY_ID', payload: previousItinerary.currentId || null });
+        
+        // Update localStorage immediately for restore operation
+        setStorageItemImmediate(STORAGE_KEYS.ITINERARY_DAYS, previousItinerary.days);
+        setStorageItemImmediate(STORAGE_KEYS.CURRENT_ITINERARY_ID, previousItinerary.currentId);
+        
+        console.log('Previous itinerary restored immediately');
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error restoring previous itinerary:', error);
+      return false;
+    }
+  }, [setItineraryDaysWithValidation]);
+
+  const clearItineraryDays = useCallback(() => {
+    console.log('[ItineraryContext] Clearing all itinerary days from state, current days:', state.itineraryDays.length);
+    
+    // Set flag to indicate we're creating a new itinerary
+    isCreatingNewItinerary.current = true;
+    console.log('[ItineraryContext] Set isCreatingNewItinerary flag to prevent auto-loading');
+    
+    dispatch({ type: 'CLEAR_ITINERARY' });
+    
+    // Force flush pending writes before clearing to ensure consistency
+    debouncedStorage.flush();
+    
+    // Use immediate removal for user-initiated clearing
+    try {
+      removeStorageItemImmediate(STORAGE_KEYS.ITINERARY_DAYS);
+      removeStorageItemImmediate('mostRecentItinerary'); // Also clear most recent
+      console.log('[ItineraryContext] Immediately cleared itinerary days from localStorage');
+    } catch (error) {
+      console.error('Error clearing itinerary days from localStorage:', error);
+    }
+  }, [state.itineraryDays.length]);
+
+  const finishItineraryCreation = useCallback(() => {
+    console.log('[ItineraryContext] Clearing isCreatingNewItinerary flag - creation complete');
+    isCreatingNewItinerary.current = false;
+  }, []);
+
+  // **DESTINATION VALIDATION**: Clear inconsistent itinerary data
+  const clearInconsistentData = (reason: string) => {
+    console.log(`🧹 ItineraryContext: Clearing inconsistent data - ${reason}`);
+    try {
+      // Clear ALL itinerary-related localStorage keys
+      const keysToRemove = [
+        STORAGE_KEYS.ITINERARY_DAYS,
+        STORAGE_KEYS.CURRENT_ITINERARY_ID,
+        STORAGE_KEYS.CURRENT_ITINERARY_TITLE,
+        STORAGE_KEYS.PREVIOUS_ITINERARY,
+        'mostRecentItinerary',
+        'itineraries', // Also clear the full itineraries list
+        'lastItineraryRefresh',
+        'itinerary_creation_cache',
+        'currentUserId' // Clear user context to force fresh start
+      ];
+      
+      keysToRemove.forEach(key => {
+        localStorage.removeItem(key);
+      });
+      
+      // Also clear any keys that start with 'itinerary' to catch edge cases
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && (key.includes('itinerary') || key.includes('cache:') || key.includes('conversation'))) {
+          localStorage.removeItem(key);
+          console.log(`🧹 Cleared additional key: ${key}`);
+        }
+      }
+      
+      console.log('✅ ItineraryContext: Cleared all inconsistent localStorage data');
+    } catch (error) {
+      console.error('❌ ItineraryContext: Error clearing inconsistent data:', error);
+    }
+  };
+
+  // **DESTINATION VALIDATION**: Enhanced validation logic
+  const validateDestinationConsistency = (itineraryDestination: string, conversationDestination?: string): boolean => {
+    if (!conversationDestination || !itineraryDestination) {
+      return true; // Allow if either is missing
+    }
+    
+    // Normalize destinations for comparison - more aggressive normalization
+    const normalizeDestination = (dest: string): string => {
+      return dest.toLowerCase()
+        .replace(/[^a-z\s]/g, '')
+        .replace(/\b(to|in|at|the|of|and|or)\b/g, '') // Remove common words
+        .trim()
+        .split(/\s+/)
+        .filter(word => word.length > 2) // Filter out short words
+        .slice(0, 3) // Take first 3 significant words
+        .join(' ');
+    };
+    
+    const normalizedItinerary = normalizeDestination(itineraryDestination);
+    const normalizedConversation = normalizeDestination(conversationDestination);
+    
+    console.log('🔍 Destination validation:', {
+      original: { itinerary: itineraryDestination, conversation: conversationDestination },
+      normalized: { itinerary: normalizedItinerary, conversation: normalizedConversation }
+    });
+    
+    // More strict validation - require significant overlap
+    const itineraryWords = normalizedItinerary.split(' ').filter(w => w.length > 0);
+    const conversationWords = normalizedConversation.split(' ').filter(w => w.length > 0);
+    
+    // Check for overlapping words (need at least 60% match)
+    const commonWords = itineraryWords.filter(word => 
+      conversationWords.some(cWord => 
+        word.includes(cWord) || cWord.includes(word) || 
+        (word.length > 3 && cWord.length > 3 && 
+         (word.substring(0, 4) === cWord.substring(0, 4)))
+      )
+    );
+    
+    const matchPercentage = itineraryWords.length > 0 ? (commonWords.length / itineraryWords.length) : 0;
+    
+    console.log('🔍 Match analysis:', {
+      itineraryWords,
+      conversationWords,
+      commonWords,
+      matchPercentage: Math.round(matchPercentage * 100) + '%'
+    });
+    
+    // Require at least 60% word overlap for consistency
+    const isConsistent = matchPercentage >= 0.6;
+    
+    if (!isConsistent) {
+      console.log(`🚨 Destinations don't match sufficiently (${Math.round(matchPercentage * 100)}% < 60%)`);
+    }
+    
+    return isConsistent;
+  };
+
+  // **PERFORMANCE OPTIMIZATION: Initialize from localStorage effect**
+  useEffect(() => {
+    // Skip if we've already loaded or if we have data or if we're creating a new itinerary
+    if (hasLoadedFromStorage.current || state.itineraryDays.length > 0 || state.currentItineraryId || isCreatingNewItinerary.current) {
+      return;
+    }
+    
+    // Mark as loaded to prevent future runs
+    hasLoadedFromStorage.current = true;
+    
+    try {
+      // **DESTINATION VALIDATION**: Check conversation context before loading
+      const session = conversationFlowManager.getCurrentSession();
+      const conversationDestination = session?.destination;
+      
+      // First try to load from persistent localStorage keys
+      const persistentDays = getStorageItem<ItineraryDay[]>(STORAGE_KEYS.ITINERARY_DAYS, []);
+      const persistentId = getStorageItem<string | null>(STORAGE_KEYS.CURRENT_ITINERARY_ID, null);
+      const persistentTitle = getStorageItem<string>(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, 'My Itinerary');
+      
+      if (persistentDays.length > 0 && persistentId) {
+        // **DESTINATION VALIDATION**: Validate destination consistency
+        const itineraryDestination = derivedValues.destination || 
+          persistentDays.flatMap(day => day.activities)
+            .find(a => a.location)?.location?.split(',')[1]?.trim() || '';
+        
+        // **ACTIVITY-LEVEL VALIDATION**: Check for wrong city activities in persistent data
+        const allActivities = persistentDays.flatMap(day => day.activities);
+        const activityLocations = allActivities
+          .filter(activity => activity.location)
+          .map(activity => activity.location || '');
+        
+        console.log('🔍 Persistent data validation:', {
+          conversationDestination,
+          itineraryDestination,
+          activityCount: allActivities.length,
+          sampleLocations: activityLocations.slice(0, 3)
+        });
+        
+        let shouldReject = false;
+        let rejectReason = '';
+        
+        // Check overall destination consistency
+        const isConsistent = validateDestinationConsistency(itineraryDestination, conversationDestination);
+        
+        if (!isConsistent && conversationDestination && itineraryDestination) {
+          shouldReject = true;
+          rejectReason = `Destination mismatch: conversation="${conversationDestination}", itinerary="${itineraryDestination}"`;
+        }
+        
+        // **ENHANCED**: Check for wrong city activities in persistent data
+        if (!shouldReject && conversationDestination && activityLocations.length > 0) {
+          const conversationCity = conversationDestination.toLowerCase();
+          const wrongCityActivities = activityLocations.filter(location => {
+            const locationLower = location.toLowerCase();
+            
+            // If conversation is about Dallas but we have Orlando activities
+            if (conversationCity.includes('dallas') || conversationCity.includes('texas')) {
+              return locationLower.includes('orlando') || locationLower.includes('florida') ||
+                     locationLower.includes('tokyo') || locationLower.includes('japan');
+            }
+            
+            // If conversation is about Orlando but we have Dallas activities  
+            if (conversationCity.includes('orlando') || conversationCity.includes('florida')) {
+              return locationLower.includes('dallas') || locationLower.includes('texas');
+            }
+            
+            return false;
+          });
+          
+          if (wrongCityActivities.length > 0) {
+            shouldReject = true;
+            rejectReason = `Wrong city activities in cache: conversation="${conversationDestination}", found activities in: ${wrongCityActivities.slice(0, 2).join(', ')}`;
+            console.log('🚨 Wrong city activities in persistent data:', wrongCityActivities);
+          }
+        }
+        
+        if (shouldReject) {
+          console.log(`🚨 ItineraryContext: Persistent data validation failed!`);
+          console.log(`📍 Conversation: "${conversationDestination}"`);
+          console.log(`🗺️ Cached itinerary: "${itineraryDestination}"`);
+          console.log(`📋 Reason: ${rejectReason}`);
+          
+          clearInconsistentData(rejectReason);
+          return; // Don't load inconsistent data
+        }
+        
+              console.log('✅ ItineraryContext: Persistent data validation passed, loading:', persistentTitle);
+      setItineraryDaysWithValidation(persistentDays);
+      dispatch({ type: 'SET_CURRENT_ITINERARY_ID', payload: persistentId });
+      dispatch({ type: 'SET_CURRENT_ITINERARY_TITLE', payload: persistentTitle });
+      return;
+      }
+      
+      // If no persistent data, try to load from mostRecentItinerary (fallback for older versions)
+      const mostRecentData = localStorage.getItem('mostRecentItinerary');
+      
+      if (mostRecentData) {
+        const itineraryData = JSON.parse(mostRecentData);
+        
+        // **DESTINATION VALIDATION**: Validate fallback data too
+        const itineraryDestination = itineraryData.destination || '';
+        
+        // **ACTIVITY-LEVEL VALIDATION**: Check legacy data activities
+        const legacyDays = itineraryData.days || [];
+        const allActivities = legacyDays.flatMap((day: any) => day.activities || []);
+        const activityLocations = allActivities
+          .filter((activity: any) => activity.location)
+          .map((activity: any) => activity.location || '');
+        
+        console.log('🔍 Legacy data validation:', {
+          conversationDestination,
+          itineraryDestination,
+          activityCount: allActivities.length,
+          sampleLocations: activityLocations.slice(0, 3)
+        });
+        
+        let shouldReject = false;
+        let rejectReason = '';
+        
+        // Check overall destination consistency
+        const isConsistent = validateDestinationConsistency(itineraryDestination, conversationDestination);
+        
+        if (!isConsistent && conversationDestination && itineraryDestination) {
+          shouldReject = true;
+          rejectReason = `Legacy destination mismatch: conversation="${conversationDestination}", itinerary="${itineraryDestination}"`;
+        }
+        
+        // **ENHANCED**: Check for wrong city activities in legacy data
+        if (!shouldReject && conversationDestination && activityLocations.length > 0) {
+          const conversationCity = conversationDestination.toLowerCase();
+          const wrongCityActivities = activityLocations.filter((location: string) => {
+            const locationLower = location.toLowerCase();
+            
+            // If conversation is about Dallas but we have Orlando activities
+            if (conversationCity.includes('dallas') || conversationCity.includes('texas')) {
+              return locationLower.includes('orlando') || locationLower.includes('florida') ||
+                     locationLower.includes('tokyo') || locationLower.includes('japan');
+            }
+            
+            // If conversation is about Orlando but we have Dallas activities  
+            if (conversationCity.includes('orlando') || conversationCity.includes('florida')) {
+              return locationLower.includes('dallas') || locationLower.includes('texas');
+            }
+            
+            return false;
+          });
+          
+          if (wrongCityActivities.length > 0) {
+            shouldReject = true;
+            rejectReason = `Wrong city activities in legacy cache: conversation="${conversationDestination}", found activities in: ${wrongCityActivities.slice(0, 2).join(', ')}`;
+            console.log('🚨 Wrong city activities in legacy data:', wrongCityActivities);
+          }
+        }
+        
+        if (shouldReject) {
+          console.log(`🚨 ItineraryContext: Legacy data validation failed!`);
+          console.log(`📍 Conversation: "${conversationDestination}"`);
+          console.log(`🗺️ Legacy itinerary: "${itineraryDestination}"`);
+          console.log(`📋 Reason: ${rejectReason}`);
+          
+          clearInconsistentData(rejectReason);
+          return; // Don't load inconsistent legacy data
+        }
+        
+              console.log('✅ ItineraryContext: Legacy destination validation passed, loading:', itineraryData.title);
+      
+      // Set the data in our state
+      setItineraryDaysWithValidation(itineraryData.days || []);
+      dispatch({ type: 'SET_CURRENT_ITINERARY_ID', payload: itineraryData.id });
+      dispatch({ type: 'SET_CURRENT_ITINERARY_TITLE', payload: itineraryData.title || 'My Itinerary' });
+        
+        // Also update persistent localStorage keys
+        setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, itineraryData.days || []);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itineraryData.id);
+        setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, itineraryData.title || 'My Itinerary');
+      }
+    } catch (error) {
+      console.error('❌ ItineraryContext: Error loading and validating data:', error);
+      // Clear potentially corrupted data
+      clearInconsistentData(`Data loading error: ${error}`);
+    }
+  // Only run on initial mount - no dependencies
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // **PERFORMANCE OPTIMIZATION: Create action creators**
+  const setCurrentItineraryTitle = useCallback((title: string) => {
+    dispatch({ type: 'SET_CURRENT_ITINERARY_TITLE', payload: title });
+  }, []);
+
+  const setLoading = useCallback((loading: boolean) => {
+    dispatch({ type: 'SET_LOADING', payload: loading });
+  }, []);
+
+  // **PERFORMANCE OPTIMIZATION: Memoize all action functions**
+  const actions = useMemo(() => ({
+    setCurrentItineraryTitle,
+    getCurrentItineraryTitle: () => state.currentItineraryTitle || 'My Itinerary',
+    addActivity,
+    updateActivity,
+    deleteActivity,
+    addDay,
+    deleteDay,
+    acceptSuggestion,
+    rejectSuggestion,
+    setLoading,
+    clearSessionStorage,
+    clearItineraryDays,
+    finishItineraryCreation,
+    savePreviousItinerary,
+    restorePreviousItinerary,
+    hasPreviousItinerary,
+    forceRefresh
+  }), [
+    setCurrentItineraryTitle, state.currentItineraryTitle, addActivity, updateActivity, 
+    deleteActivity, addDay, deleteDay, acceptSuggestion, rejectSuggestion, setLoading,
+    clearSessionStorage, clearItineraryDays, finishItineraryCreation,
+    savePreviousItinerary, restorePreviousItinerary, hasPreviousItinerary, forceRefresh
+  ]);
+
+  // **PERFORMANCE OPTIMIZATION: Memoize async actions separately to avoid recreating them**
+  const asyncActions = useMemo(() => ({
+    saveItinerary: async (title: string = 'My Itinerary'): Promise<string | null> => {
+      try {
+        // Don't save empty itineraries
+        if (state.itineraryDays.length === 0) {
+          console.warn('Attempted to save empty itinerary');
+          return null;
+        }
+        
+        // Use current derived values for destination and dates
+        const currentDestination = derivedValues.destination;
+        const currentStartDate = derivedValues.startDate;
+        const currentEndDate = derivedValues.endDate;
+        
+        // Determine if this should be a new itinerary or update an existing one
+        let itineraryId = state.currentItineraryId;
+        let shouldCreateNew = false;
+        
+        // If we have a current ID, check if the itinerary has changed significantly
+        if (state.currentItineraryId) {
+          try {
+            let existingItinerary = null;
+            
+            if (user) {
+              // For authenticated users, check Supabase
+              try {
+                existingItinerary = await databaseService.getItinerary(state.currentItineraryId);
+              } catch (error) {
+                console.log('Itinerary not found in Supabase, will create new');
+                shouldCreateNew = true;
+              }
+            } else {
+              // For unauthenticated users, check localStorage
+              const storageKey = 'itineraries';
+              const savedItineraries = localStorage.getItem(storageKey);
+              
+              if (savedItineraries) {
+                const itineraries = JSON.parse(savedItineraries);
+                existingItinerary = itineraries.find((item: any) => item.id === state.currentItineraryId);
+              }
+            }
+            
+            if (existingItinerary) {
+              // Check if destination or date range has changed significantly
+              const existingDestination = existingItinerary.destination || '';
+              const existingStartDate = existingItinerary.start_date || existingItinerary.startDate || '';
+              const existingEndDate = existingItinerary.end_date || existingItinerary.endDate || '';
+              
+              // Create new itinerary if destination changed or date range changed significantly
+              const destinationChanged = existingDestination !== currentDestination && 
+                                       currentDestination.length > 0 && 
+                                       existingDestination.length > 0;
+              
+              const dateRangeChanged = (existingStartDate !== currentStartDate || existingEndDate !== currentEndDate) &&
+                                     currentStartDate.length > 0 && 
+                                     existingStartDate.length > 0;
+              
+              console.log('Checking if should create new itinerary:', {
+                destinationChanged,
+                dateRangeChanged,
+                existingDestination,
+                currentDestination,
+                existingStartDate,
+                currentStartDate,
+                existingEndDate,
+                currentEndDate
+              });
+              
+              if (destinationChanged || dateRangeChanged) {
+                shouldCreateNew = true;
+                console.log('Creating new itinerary due to significant changes');
+              }
+            } else {
+              // Current ID doesn't exist in storage, so create new
+              shouldCreateNew = true;
+            }
+          } catch (error) {
+            console.error('Error checking existing itinerary:', error);
+            shouldCreateNew = true;
+          }
+        } else {
+          // No current ID, create new
+          shouldCreateNew = true;
+        }
+        
+        // Generate new ID if needed
+        if (shouldCreateNew) {
+          itineraryId = getActivityIdSafely(undefined);
+          console.log('Generated new itinerary ID:', itineraryId);
+        }
+        
+        // Set as current itinerary
+        dispatch({ type: 'SET_CURRENT_ITINERARY_ID', payload: itineraryId });
+        
+        if (user) {
+          // Save to Supabase for authenticated users
+          try {
+            if (shouldCreateNew) {
+              console.log('Creating new itinerary in Supabase');
+              const result = await databaseService.createItinerary(
+                user.id,
+                title,
+                currentDestination || '',
+                currentStartDate,
+                currentEndDate,
+                state.itineraryDays
+              );
+              itineraryId = result.id;
+              dispatch({ type: 'SET_CURRENT_ITINERARY_ID', payload: itineraryId });
+              console.log('Created new itinerary in Supabase with ID:', itineraryId);
+            } else {
+              console.log('Updating existing itinerary in Supabase');
+              await databaseService.updateItinerary(itineraryId!, {
+                name: title,
+                destination: currentDestination,
+                start_date: currentStartDate,
+                end_date: currentEndDate,
+                days: state.itineraryDays
+              });
+              console.log('Updated existing itinerary in Supabase:', itineraryId);
+            }
+          } catch (error) {
+            console.error('Error saving to Supabase:', error);
+            throw error;
+          }
+        } else {
+          // Save to localStorage for unauthenticated users
+          const itineraryData = {
+            id: itineraryId,
+            title,
+            destination: currentDestination,
+            startDate: currentStartDate,
+            endDate: currentEndDate,
+            days: state.itineraryDays,
+            createdAt: shouldCreateNew ? new Date().toISOString() : undefined,
+            lastUpdated: new Date().toISOString()
+          };
+          
+          // Preserve original creation date if updating existing itinerary
+          if (!shouldCreateNew && state.currentItineraryId) {
+            try {
+              const storageKey = 'itineraries';
+              const savedItineraries = localStorage.getItem(storageKey);
+              
+              if (savedItineraries) {
+                const itineraries = JSON.parse(savedItineraries);
+                const existingItinerary = itineraries.find((item: any) => item.id === state.currentItineraryId);
+                
+                if (existingItinerary && existingItinerary.createdAt) {
+                  itineraryData.createdAt = existingItinerary.createdAt;
+                }
+              }
+            } catch (error) {
+              console.error('Error preserving creation date:', error);
+              itineraryData.createdAt = new Date().toISOString();
+            }
+          }
+          
+          // Ensure createdAt is always set
+          if (!itineraryData.createdAt) {
+            itineraryData.createdAt = new Date().toISOString();
+          }
+          
+          const storageKey = 'itineraries';
+          const savedItineraries = localStorage.getItem(storageKey);
+          let itineraries = savedItineraries ? JSON.parse(savedItineraries) : [];
+          
+          // Update if exists, otherwise add new
+          const existingIndex = itineraries.findIndex((item: any) => item.id === itineraryId);
+          
+          if (existingIndex >= 0) {
+            itineraries[existingIndex] = itineraryData;
+            console.log('Updated existing itinerary in localStorage:', itineraryId);
+          } else {
+            itineraries.push(itineraryData);
+            console.log('Created new itinerary in localStorage:', itineraryId);
+          }
+          
+          // Force immediate save for user-initiated save operation
+          debouncedStorage.flush(); // Complete any pending writes first
+          setStorageItemImmediate(storageKey, itineraries);
+          
+          // Also save as most recent itinerary for quick access (immediate)
+          setStorageItemImmediate('mostRecentItinerary', itineraryData);
+        }
+        
+        // Force a UI refresh after saving
+        forceRefresh();
+        
+        return itineraryId;
+      } catch (error) {
+        console.error('Error saving itinerary:', error);
+        return null;
+      }
+    },
+    loadItinerary,
+    getUserItineraries,
+    deleteItinerary
+  }), [state.itineraryDays, state.currentItineraryId, user, derivedValues, loadItinerary, getUserItineraries, deleteItinerary, forceRefresh]);
+
+  // **PERFORMANCE OPTIMIZATION: Memoize context data**
+  const contextData = useMemo(() => ({
+    itineraryDays: state.itineraryDays,
+    suggestions: state.suggestions,
+    isLoading: state.isLoading,
+    currentItineraryId: state.currentItineraryId,
+    currentItineraryTitle: state.currentItineraryTitle,
+    destination: derivedValues.destination,
+    startDate: derivedValues.startDate,
+    endDate: derivedValues.endDate,
+    sortedItineraryDays
+  }), [
+    state.itineraryDays,
+    state.suggestions,
+    state.isLoading,
+    state.currentItineraryId,
+    state.currentItineraryTitle,
+    derivedValues.destination,
+    derivedValues.startDate,
+    derivedValues.endDate,
+    sortedItineraryDays
+  ]);
+
+  // **PERFORMANCE OPTIMIZATION: Combine actions for context value**
+  const contextActions = useMemo(() => ({
+    ...actions,
+    ...asyncActions
+  }), [actions, asyncActions]);
+
+  // **PERFORMANCE OPTIMIZATION: Debounced localStorage updates**
+  // Update localStorage whenever itineraryDays changes (debounced for performance)
+  useEffect(() => {
+    if (state.itineraryDays.length > 0) {
+      setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, state.itineraryDays);
+      console.log('📝 Scheduled debounced save of itinerary days');
+    }
+  }, [state.itineraryDays]);
+
+  // Update localStorage whenever currentItineraryId changes (immediate for important state)
+  useEffect(() => {
+    if (state.currentItineraryId !== null) {
+      setStorageItemImmediate(STORAGE_KEYS.CURRENT_ITINERARY_ID, state.currentItineraryId);
+      console.log('💾 Immediately saved current itinerary ID');
+    }
+  }, [state.currentItineraryId]);
+
+  // Update localStorage whenever currentItineraryTitle changes (debounced)
+  useEffect(() => {
+    setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, state.currentItineraryTitle);
+  }, [state.currentItineraryTitle]);
+
+  // **PERFORMANCE OPTIMIZATION: Cleanup effect to ensure data consistency**
+  useEffect(() => {
+    // **TAB SWITCH VALIDATION**: Validate destination consistency when user returns
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && state.itineraryDays.length > 0) {
+        console.log('👁️ ItineraryContext: Tab became visible, validating destination consistency');
+        
+        try {
+          // Get current conversation context
+          const session = conversationFlowManager.getCurrentSession();
+          const conversationDestination = session?.destination;
+          
+          if (conversationDestination) {
+            // Extract destination from current itinerary
+            const itineraryDestination = derivedValues.destination;
+            
+            // **ACTIVITY-LEVEL VALIDATION**: Check individual activities too
+            const allActivities = state.itineraryDays.flatMap(day => day.activities);
+            const activityLocations = allActivities
+              .filter(activity => activity.location)
+              .map(activity => activity.location || '');
+            
+            console.log('🔍 Tab return validation check:', {
+              conversationDestination,
+              itineraryDestination,
+              activityCount: allActivities.length,
+              activityLocations: activityLocations.slice(0, 3) // Show first 3 for debugging
+            });
+            
+            let shouldClear = false;
+            let clearReason = '';
+            
+            // Check overall destination consistency
+            if (itineraryDestination) {
+              const isConsistent = validateDestinationConsistency(itineraryDestination, conversationDestination);
+              if (!isConsistent) {
+                shouldClear = true;
+                clearReason = `Overall destination mismatch: conversation="${conversationDestination}", itinerary="${itineraryDestination}"`;
+              }
+            }
+            
+            // **ENHANCED**: Check activity locations for wrong cities
+            if (!shouldClear && activityLocations.length > 0) {
+              const conversationCity = conversationDestination.toLowerCase();
+              const wrongCityActivities = activityLocations.filter(location => {
+                const locationLower = location.toLowerCase();
+                // Check if location contains a different major city name
+                const containsOrlando = locationLower.includes('orlando');
+                const containsTokyo = locationLower.includes('tokyo');
+                const containsNewYork = locationLower.includes('new york');
+                const containsLosAngeles = locationLower.includes('los angeles');
+                const containsChicago = locationLower.includes('chicago');
+                const containsMiami = locationLower.includes('miami');
+                
+                // If conversation is about Dallas but activities are in Orlando (or other cities)
+                if (conversationCity.includes('dallas') || conversationCity.includes('texas')) {
+                  return containsOrlando || containsTokyo || containsNewYork || 
+                         containsLosAngeles || containsChicago || containsMiami;
+                }
+                
+                // Add checks for other conversation destinations
+                if (conversationCity.includes('orlando') || conversationCity.includes('florida')) {
+                  return locationLower.includes('dallas') || locationLower.includes('texas');
+                }
+                
+                return false;
+              });
+              
+              if (wrongCityActivities.length > 0) {
+                shouldClear = true;
+                clearReason = `Wrong city activities found: conversation="${conversationDestination}", found activities in wrong cities: ${wrongCityActivities.slice(0, 2).join(', ')}`;
+                console.log('🚨 Wrong city activities found:', wrongCityActivities);
+              }
+            }
+            
+            if (shouldClear) {
+              console.log(`🚨 ItineraryContext: Tab return validation failed!`);
+              console.log(`📍 Conversation: "${conversationDestination}"`);
+              console.log(`🗺️ Current itinerary: "${itineraryDestination}"`);
+              console.log(`📋 Reason: ${clearReason}`);
+              
+              // Clear the inconsistent itinerary state
+              dispatch({ type: 'CLEAR_ITINERARY' });
+              clearInconsistentData(clearReason);
+              
+              // Force a complete refresh to ensure clean state
+              console.log('🔄 ItineraryContext: Reloading page to ensure clean state...');
+              setTimeout(() => {
+                window.location.reload();
+              }, 1500); // Give time for user to see the clearing action
+            } else {
+              console.log('✅ ItineraryContext: Tab return validation passed');
+            }
+          }
+        } catch (error) {
+          console.error('❌ ItineraryContext: Error validating on tab return:', error);
+        }
+      }
+    };
+
+    // Add visibility change listener
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Cleanup function to flush pending writes on unmount
+    return () => {
+      console.log('🧹 ItineraryContext: Flushing pending localStorage writes on unmount');
+      debouncedStorage.flush();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [state.itineraryDays.length, derivedValues.destination, validateDestinationConsistency, clearInconsistentData]);
+
+  // **AGGRESSIVE VALIDATION**: Continuously validate itinerary against conversation context
+  useEffect(() => {
+    // Skip if no itinerary data
+    if (state.itineraryDays.length === 0) return;
+    
+    try {
+      const session = conversationFlowManager.getCurrentSession();
+      const conversationDestination = session?.destination;
+      
+      if (conversationDestination) {
+        const conversationCity = conversationDestination.toLowerCase();
+        
+        // Check if current itinerary has wrong city activities
+        const allActivities = state.itineraryDays.flatMap(day => day.activities);
+        const wrongCityActivities = allActivities.filter(activity => {
+          if (!activity.location) return false;
+          
+          const activityLocation = activity.location.toLowerCase();
+          
+          // If conversation is about Dallas but we have Orlando activities
+          if (conversationCity.includes('dallas') || conversationCity.includes('texas')) {
+            return activityLocation.includes('orlando') || activityLocation.includes('florida') ||
+                   activityLocation.includes('tokyo') || activityLocation.includes('japan');
+          }
+          
+          return false;
+        });
+        
+        if (wrongCityActivities.length > 0) {
+          console.log(`🚨 AGGRESSIVE VALIDATION: Found ${wrongCityActivities.length} wrong city activities, clearing immediately!`);
+          console.log(`📍 Conversation: "${conversationDestination}"`);
+          console.log(`🗺️ Wrong activities:`, wrongCityActivities.map(a => `${a.title} at ${a.location}`));
+          
+          // Clear all data immediately
+          dispatch({ type: 'CLEAR_ITINERARY' });
+          clearInconsistentData(`Aggressive validation: Found ${wrongCityActivities.length} Orlando activities in Dallas conversation`);
+        }
+      }
+    } catch (error) {
+      console.error('Error in aggressive validation:', error);
+    }
+  }, [state.itineraryDays, clearInconsistentData]);
+
+  // Initialize from localStorage if available
+  useEffect(() => {
+    // Only run this effect once on mount
+    dispatch({ type: 'SET_SUGGESTIONS', payload: initialSuggestions });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array to run only on mount
+
+  // Load the most recent itinerary from localStorage on initialization if needed
+
+  return (
+    <ItineraryDataContext.Provider
+      value={{
+        itineraryDays: state.itineraryDays,
+        suggestions: state.suggestions,
+        isLoading: state.isLoading,
+        currentItineraryId: state.currentItineraryId,
+        currentItineraryTitle: state.currentItineraryTitle,
+        destination: derivedValues.destination,
+        startDate: derivedValues.startDate,
+        endDate: derivedValues.endDate,
+        sortedItineraryDays
+      }}
+    >
+      <ItineraryActionsContext.Provider
+        value={{
+          ...contextActions
+        }}
+      >
+        {children}
+      </ItineraryActionsContext.Provider>
+    </ItineraryDataContext.Provider>
+  );
+}; 

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CheckCircle, Save, RotateCcw, X, Trash2, MessageCircle, Map } from 'lucide-react';
 import { Button } from '../ui/button';
 import { UserPreferences } from './EnhancedItineraryCreator';
-import UserPreferencesService from '../../services/userPreferencesService';
+import { unifiedUserPreferencesService } from '../../services/unifiedUserPreferencesService';
 import { Badge } from '../ui/badge';
 import { 
   AlertDialog,

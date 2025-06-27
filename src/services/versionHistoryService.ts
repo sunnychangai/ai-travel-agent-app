@@ -7,6 +7,9 @@ export interface VersionEntry {
   features: string[];
   bugFixes: string[];
   improvements: string[];
+  architectureOverhaul: string[];
+  technicalDebtReduction: string[];
+  systemArchitecture: string[];
 }
 
 export const versionHistoryService = {
@@ -36,7 +39,7 @@ export const versionHistoryService = {
     const lines = markdown.split('\n');
     
     let currentVersion: Partial<VersionEntry> | null = null;
-    let currentSection: 'features' | 'bugFixes' | 'improvements' | null = null;
+    let currentSection: 'features' | 'bugFixes' | 'improvements' | 'architectureOverhaul' | 'technicalDebtReduction' | 'systemArchitecture' | null = null;
     
     for (const line of lines) {
       const trimmedLine = line.trim();
@@ -56,7 +59,10 @@ export const versionHistoryService = {
             date: versionMatch[2],
             features: [],
             bugFixes: [],
-            improvements: []
+            improvements: [],
+            architectureOverhaul: [],
+            technicalDebtReduction: [],
+            systemArchitecture: []
           };
           currentSection = null;
         }
@@ -66,11 +72,20 @@ export const versionHistoryService = {
       else if (trimmedLine.includes('✨') && (trimmedLine.includes('New Features') || trimmedLine.includes('Features') || trimmedLine.includes('Initial Release'))) {
         currentSection = 'features';
       }
-      else if (trimmedLine.includes('🐛') && (trimmedLine.includes('Bug Fixes') || trimmedLine.includes('Fixes'))) {
+      else if (trimmedLine.includes('🐛') && (trimmedLine.includes('Bug Fixes') || trimmedLine.includes('Fixes') || trimmedLine.includes('Critical Bug Fixes'))) {
         currentSection = 'bugFixes';
       }
-      else if (trimmedLine.includes('🔧') && (trimmedLine.includes('Improvements') || trimmedLine.includes('Changes'))) {
+      else if (trimmedLine.includes('🔧') && trimmedLine.includes('Technical Debt Reduction')) {
+        currentSection = 'technicalDebtReduction';
+      }
+      else if (trimmedLine.includes('🔧') && (trimmedLine.includes('Improvements') || trimmedLine.includes('Changes') || trimmedLine.includes('Major Improvements'))) {
         currentSection = 'improvements';
+      }
+      else if (trimmedLine.includes('🎯') && (trimmedLine.includes('Major Architecture Overhaul') || trimmedLine.includes('Architecture Overhaul'))) {
+        currentSection = 'architectureOverhaul';
+      }
+      else if (trimmedLine.includes('📊') && (trimmedLine.includes('System Architecture'))) {
+        currentSection = 'systemArchitecture';
       }
       
       // Bullet points
@@ -116,7 +131,10 @@ export const versionHistoryService = {
         improvements: [
           "Enhanced form validation and error handling",
           "Better responsive design for feedback interface"
-        ]
+        ],
+        architectureOverhaul: [],
+        technicalDebtReduction: [],
+        systemArchitecture: []
       },
       {
         version: "2.0.0",
@@ -129,7 +147,10 @@ export const versionHistoryService = {
         improvements: [
           "Better differentiation between various user request types",
           "Enhanced AI response accuracy and relevance"
-        ]
+        ],
+        architectureOverhaul: [],
+        technicalDebtReduction: [],
+        systemArchitecture: []
       }
     ];
   }

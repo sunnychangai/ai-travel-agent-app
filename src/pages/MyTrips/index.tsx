@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Trash2, Calendar, MapPin, ArrowRight, PlusCircle, ChevronLeft } from 'lucide-react';
+import { Trash2, Calendar, MapPin, ArrowRight, PlusCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDate } from '../../utils/dateUtils';
 import { useItinerary } from '../../contexts/ItineraryContext';
+import { parseLocationString } from '../../utils/destinationUtils';
 import TravelPlannerErrorBoundary from '../../components/TravelPlanner/TravelPlannerErrorBoundary';
 
 // Define the saved itinerary structure
@@ -31,7 +32,11 @@ interface SavedItinerary {
   }>;
 }
 
-const MyTripsPageContent: React.FC = () => {
+interface MyTripsPageContentProps {
+  onClose?: () => void;
+}
+
+const MyTripsPageContent: React.FC<MyTripsPageContentProps> = ({ onClose }) => {
   const [savedItineraries, setSavedItineraries] = useState<SavedItinerary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
@@ -65,6 +70,11 @@ const MyTripsPageContent: React.FC = () => {
   };
 
   const navigateToItinerary = (id: string) => {
+    // Close the popup first
+    if (onClose) {
+      onClose();
+    }
+    // Then navigate to the itinerary
     navigate(`/app?load=${id}`);
   };
 
@@ -74,44 +84,77 @@ const MyTripsPageContent: React.FC = () => {
       (total, day) => total + day.activities.length, 0
     );
     
-    const destinations = new Set<string>();
+    // Collect all locations and their frequency
+    const locationCounts = new Map<string, number>();
+    const cityCountryPairs = new Set<string>();
+    const countriesOnly = new Set<string>();
+    
     itinerary.days.forEach(day => {
       day.activities.forEach(activity => {
         if (activity.location) {
-          // Try to extract city from the location
-          const parts = activity.location.split(',');
-          if (parts.length > 1) {
-            destinations.add(parts[1].trim());
+          const cleanLocation = parseLocationString(activity.location);
+          
+          // Count occurrences
+          locationCounts.set(cleanLocation, (locationCounts.get(cleanLocation) || 0) + 1);
+          
+          // Categorize locations
+          if (cleanLocation.includes(',')) {
+            cityCountryPairs.add(cleanLocation);
           } else {
-            destinations.add(activity.location);
+            countriesOnly.add(cleanLocation);
           }
         }
       });
     });
     
+    // Smart deduplication: prefer city,country over country-only
+    const smartDestinations = new Set<string>();
+    
+    // First, add all city,country pairs
+    cityCountryPairs.forEach(location => {
+      smartDestinations.add(location);
+    });
+    
+    // Then, only add countries that don't have a corresponding city,country pair
+    countriesOnly.forEach(country => {
+      const hasMatchingCityCountry = Array.from(cityCountryPairs).some(pair => 
+        pair.toLowerCase().includes(country.toLowerCase())
+      );
+      if (!hasMatchingCityCountry) {
+        smartDestinations.add(country);
+      }
+    });
+    
+    // Convert to array and limit to avoid overcrowding
+    let uniqueDestinations = Array.from(smartDestinations);
+    
+    // If we have too many destinations, prioritize by frequency
+    if (uniqueDestinations.length > 3) {
+      uniqueDestinations = uniqueDestinations
+        .sort((a, b) => (locationCounts.get(b) || 0) - (locationCounts.get(a) || 0))
+        .slice(0, 3);
+    }
+    
     return {
       totalActivities,
-      uniqueDestinations: Array.from(destinations),
+      uniqueDestinations,
     };
   };
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <div className="mb-8">
+    <div className="py-4 px-2">
+      <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <Link 
-              to="/app" 
-              className="text-sm text-slate-600 hover:text-slate-900 flex items-center mb-2"
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Back to Planner
-            </Link>
-            <h1 className="text-3xl font-bold">My Trips</h1>
-            <p className="text-slate-500">View and manage your saved itineraries</p>
+            <p className="text-slate-600">View and manage your saved itineraries</p>
           </div>
           <Button 
-            onClick={() => navigate('/app')}
+            onClick={() => {
+              if (onClose) {
+                onClose();
+              }
+              navigate('/app');
+            }}
             className="bg-blue-600 hover:bg-blue-700"
           >
             <PlusCircle className="h-4 w-4 mr-2" />
@@ -136,7 +179,11 @@ const MyTripsPageContent: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {savedItineraries.map((itinerary) => {
             const stats = getItineraryStats(itinerary);
-            const dateRangeText = `${formatDate(itinerary.startDate, 'MM/DD')} - ${formatDate(itinerary.endDate, 'MM/DD')}`;
+            
+            // Safe date formatting with fallbacks
+            const startDateFormatted = formatDate(itinerary.startDate, 'MM/DD', '--/--');
+            const endDateFormatted = formatDate(itinerary.endDate, 'MM/DD', '--/--');
+            const dateRangeText = `${startDateFormatted} - ${endDateFormatted}`;
             const daysCount = itinerary.days.length;
             
             return (
@@ -167,7 +214,16 @@ const MyTripsPageContent: React.FC = () => {
                   </div>
                   
                   <div className="text-xs text-slate-400 mt-1">
-                    Saved on {format(new Date(itinerary.createdAt), 'MMM d, yyyy')}
+                    Saved on {(() => {
+                      try {
+                        const createdDate = new Date(itinerary.createdAt);
+                        return isNaN(createdDate.getTime()) 
+                          ? 'Unknown date' 
+                          : format(createdDate, 'MMM d, yyyy');
+                      } catch (error) {
+                        return 'Unknown date';
+                      }
+                    })()}
                   </div>
                 </CardContent>
                 
@@ -202,10 +258,10 @@ const MyTripsPageContent: React.FC = () => {
 };
 
 // Wrap with providers for proper context
-const MyTripsPage: React.FC = () => {
+const MyTripsPage: React.FC<MyTripsPageContentProps> = ({ onClose }) => {
   return (
     <TravelPlannerErrorBoundary>
-      <MyTripsPageContent />
+      <MyTripsPageContent onClose={onClose} />
     </TravelPlannerErrorBoundary>
   );
 };

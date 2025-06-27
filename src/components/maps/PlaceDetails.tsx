@@ -152,7 +152,7 @@ export const PlaceDetails: React.FC<PlaceDetailsProps> = ({
                 <div className="flex items-center mb-2">
                   <Clock size={18} className="mr-2" />
                   <span>
-                    {details?.opening_hours?.open_now || place.opening_hours?.open_now 
+                    {details?.opening_hours?.isOpen || place.opening_hours?.isOpen 
                       ? 'Open now' 
                       : 'Closed'}
                   </span>

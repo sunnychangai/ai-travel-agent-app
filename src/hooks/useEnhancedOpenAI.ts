@@ -165,7 +165,7 @@ export function useEnhancedOpenAI() {
     const enhancedActivities = await enhancedOpenAIService.enhanceActivityDescriptions(
       activities,
       params.destination,
-      { signal, batchSize: 5 }
+      { signal }
     );
     
     if (cancelTokenRef.current) return null;

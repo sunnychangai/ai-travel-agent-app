@@ -35,19 +35,31 @@ DROP POLICY IF EXISTS "Admins can manage all destinations" ON destinations;
 DROP POLICY IF EXISTS "Admins can view all feedback" ON feedback;
 
 -- Create user preferences table for storing detailed user preferences
+-- Supports both Onboarding and EnhancedItineraryCreator components
 CREATE TABLE IF NOT EXISTS user_preferences (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL UNIQUE,
   name TEXT,
   email TEXT,
-  travel_style TEXT,
-  interests TEXT[] DEFAULT '{}',
-  budget TEXT,
+  -- Core preference fields
+  travel_style TEXT DEFAULT 'cultural', -- Onboarding: 'balanced','luxury','budget','adventure','relaxation','cultural' | EnhancedItineraryCreator: 'relaxed','active','cultural','luxury','budget','family'
+  interests TEXT[] DEFAULT '{}', -- EnhancedItineraryCreator interests as strings
+  activities TEXT[] DEFAULT '{}', -- Onboarding step 3: 'sightseeing','food','relaxation','shopping','museums','adventure','nightlife','local'
+  preferences TEXT[] DEFAULT '{}', -- Onboarding step 4: 'popular','hidden','local','international','public','private','guided','self'
+  budget TEXT, -- Onboarding: description text | EnhancedItineraryCreator: 'budget','mid-range','luxury'
+  dream_destinations TEXT, -- Onboarding step 2 free text field
+  -- Enhanced preference fields (primarily for EnhancedItineraryCreator)
+  travel_group TEXT DEFAULT 'couple', -- 'solo','couple','family','friends','business'
+  transport_mode TEXT DEFAULT 'walking', -- 'walking','public','taxi','car'
+  pace TEXT DEFAULT 'moderate', -- 'slow','moderate','fast'
+  dietary_preferences TEXT[] DEFAULT '{}', -- Array of dietary restriction strings
+  -- Legacy/compatibility fields
   preferred_accommodation TEXT,
-  dietary_restrictions TEXT[] DEFAULT '{}',
   accessibility_needs TEXT[] DEFAULT '{}',
   preferred_transportation TEXT[] DEFAULT '{}',
   trip_duration INTEGER,
+  -- Unified JSON storage for complex structures
+  preferences_json JSONB DEFAULT NULL, -- Unified format with {id,label} objects
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ
 );
@@ -279,6 +291,8 @@ CREATE INDEX IF NOT EXISTS activities_itinerary_id_idx ON activities (itinerary_
 CREATE INDEX IF NOT EXISTS activities_day_number_idx ON activities (itinerary_id, day_number);
 CREATE INDEX IF NOT EXISTS suggestions_location_idx ON suggestions USING gin (location gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS user_preferences_user_id_idx ON user_preferences (user_id);
+CREATE INDEX IF NOT EXISTS user_preferences_travel_style_idx ON user_preferences (travel_style);
+CREATE INDEX IF NOT EXISTS user_preferences_travel_group_idx ON user_preferences (travel_group);
 CREATE INDEX IF NOT EXISTS saved_searches_user_id_idx ON saved_searches (user_id);
 CREATE INDEX IF NOT EXISTS saved_searches_destination_idx ON saved_searches (destination);
 

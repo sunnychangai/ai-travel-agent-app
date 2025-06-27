@@ -14,6 +14,7 @@ import { formatDate, addOrdinalSuffix, safeParseDate } from "../../utils/dateUti
 import { getActivityIdSafely, ensureActivityId } from "../../utils/activityUtils";
 import { cn } from '../../lib/utils';
 import { generateItineraryTitle } from "../../utils/itineraryUtils";
+import { parseLocationString } from "../../utils/destinationUtils";
 
 // Component imports
 import ActivityCard from './ActivityCard';
@@ -113,19 +114,35 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
   const [selectedDay, setSelectedDay] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"day" | "list">("day");
   
-  // Log whenever itinerary days change to help with debugging
+  // Track previous itinerary length to detect new itinerary generation
+  const previousItineraryLengthRef = useRef(0);
+  
+  // **FIX: Automatically switch to Day 1 when a new itinerary is generated**
   useEffect(() => {
-    // Use a debounced logging approach to avoid excessive logs
     const itineraryLength = itineraryDays.length;
-    console.log(`ItinerarySidebar: itineraryDays updated, length: ${itineraryLength}`);
+    const previousLength = previousItineraryLengthRef.current;
     
-    // Only execute selection logic if needed (days available but none selected)
-    if (itineraryLength > 0 && (selectedDay === "all" || !selectedDay)) {
+    console.log(`ItinerarySidebar: itineraryDays updated, length: ${itineraryLength}, previous: ${previousLength}`);
+    
+    // Detect when a new itinerary is generated (going from 0 to having days)
+    const newItineraryGenerated = previousLength === 0 && itineraryLength > 0;
+    
+    if (newItineraryGenerated) {
+      // **NEW ITINERARY: Always switch to first day**
+      console.log(`🎯 ItinerarySidebar: New itinerary detected! Switching to Day 1`);
+      setSelectedDay(itineraryDays[0].dayNumber.toString());
+      setViewMode("day");
+    } else if (itineraryLength > 0 && (selectedDay === "all" || !selectedDay)) {
+      // **EXISTING LOGIC: Only for edge cases**
       setSelectedDay(itineraryDays[0].dayNumber.toString());
       setViewMode("day");
     } else if (itineraryLength === 0 && selectedDay !== "all") {
+      // **EMPTY ITINERARY: Reset to all view**
       setSelectedDay("all");
     }
+    
+    // Update the ref for next comparison
+    previousItineraryLengthRef.current = itineraryLength;
   }, [itineraryDays, selectedDay]);
   
   // Use our custom hook for activity operations
@@ -243,31 +260,28 @@ const ItinerarySidebar: React.FC<ItinerarySidebarProps> = React.memo(({
         });
       }
       
-      // Extract the city name from the location
+      // Extract the city name from the location using the sophisticated parsing function
       let destination = '';
       if (destinationActivity?.location) {
         const location = destinationActivity.location.trim();
-        const addressParts = location.split(',');
         
-        if (addressParts.length >= 2) {
-          // Use the city part (typically the second segment of the address)
-          destination = addressParts[1].trim();
-        } else if (addressParts.length === 1 && addressParts[0].trim()) {
-          // If there's only one part and it's not empty, use it
-          destination = addressParts[0].trim();
-        }
+        // Use the parseLocationString function which has comprehensive city recognition
+        const parsedLocation = parseLocationString(location);
         
-        // Clean up common words that shouldn't be in destination names
-        destination = destination.replace(/^\d+\s+/, ''); // Remove leading numbers
-        destination = destination.replace(/\b(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)\b/gi, '').trim();
-        
-        // If destination is still too generic or empty, skip auto-generation
-        if (!destination || 
-            destination.length < 2 || 
-            destination.toLowerCase().includes('unknown') ||
-            destination.toLowerCase().includes('location') ||
-            destination.toLowerCase() === 'tbd') {
-          destination = '';
+        // If we got a good result, use it
+        if (parsedLocation && 
+            parsedLocation !== 'Unknown Location' &&
+            parsedLocation.length > 2 && 
+            !parsedLocation.toLowerCase().includes('unknown') &&
+            !parsedLocation.toLowerCase().includes('location') &&
+            parsedLocation.toLowerCase() !== 'tbd') {
+          
+          // If it's in "City, Country" format, extract just the city
+          if (parsedLocation.includes(',')) {
+            destination = parsedLocation.split(',')[0].trim();
+          } else {
+            destination = parsedLocation;
+          }
         }
       }
       

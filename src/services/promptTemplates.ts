@@ -8,10 +8,12 @@ Return JSON array: [{name, description, duration, bestTime, address, type}]`;
 
 export const RESTAURANT_PROMPT = `Food expert for {destination}: List {count} restaurants matching {preferences}.
 Include for each: name, cuisine, price ($-$$$), specialty dish, location, best meal time.
+IMPORTANT: Follow local dining customs - dinner should not be before 7:00 PM minimum, with many European countries dining after 8:00-9:00 PM.
 Return JSON array: [{name, cuisine, priceRange, specialtyDish, location, bestMealTime}]`;
 
 export const DAILY_PLAN_PROMPT = `Create day {dayNumber} plan for {destination} with these activities: {activities}.
 Arrange logically considering: opening hours, proximity, meal times ({preferences}), transit via {transportMode}.
+CRITICAL: Follow local dining customs - dinner must be at least 7:00 PM or later. For European destinations, dinner is typically 8:00-9:00 PM or later.
 Include duration, specific time, and brief tips for each.
 Return JSON: {orderedActivities: [{id, startTime, endTime, notes}]}`;
 

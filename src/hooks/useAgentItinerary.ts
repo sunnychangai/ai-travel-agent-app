@@ -2,12 +2,16 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { enhancedOpenAIService } from '../services/enhancedOpenAIService';
 import { useItinerary } from '../contexts/ItineraryContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useUserPreferences } from '../hooks/useUserPreferences';
-import { useUserPreferences as useContextPreferences } from '../contexts/UserPreferencesContext';
+// Note: Using only unifiedUserPreferencesService for all preference operations
 import { convertItineraryApiToContext, generateItineraryTitle } from '../utils/itineraryUtils';
 import { extractJsonFromText, safeJsonParse } from '../utils/jsonUtils';
-import UserPreferencesService from '../services/userPreferencesService';
-import { supabase } from '../lib/supabase';
+import { unifiedUserPreferencesService } from '../services/unifiedUserPreferencesService';
+import { conversationFlowManager } from '../services/conversationFlowManager';
+import { useDebounce } from './useDebounce';
+
+// **STEP 3.3: UNIFIED STATUS MANAGEMENT**
+// Standardized status enum matching component interface
+type ItineraryCreationStatus = 'idle' | 'loading' | 'success' | 'error' | 'starting';
 
 type AgentItineraryResult = {
   success: boolean;
@@ -64,7 +68,7 @@ type UseAgentItineraryActions = {
     preferences: any
   ) => Promise<AgentItineraryResult>;
   cancelItineraryCreation: () => void;
-  itineraryCreationStatus: 'idle' | 'loading' | 'starting' | 'success' | 'error';
+  itineraryCreationStatus: ItineraryCreationStatus;
   itineraryCreationProgress: number;
   itineraryCreationStep: string;
 };
@@ -81,15 +85,18 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
     deleteActivity, 
     clearSessionStorage, 
     clearItineraryDays,
+    finishItineraryCreation,
     saveItinerary,
     savePreviousItinerary,
     restorePreviousItinerary,
     hasPreviousItinerary,
     forceRefresh
   } = useItinerary();
-  const { preferences: enhancedPreferences, updatePreferences } = useUserPreferences();
-  const { preferences: contextPreferences } = useContextPreferences();
   const requestManager = useRef(new AbortController());
+  
+  // Cached preferences to avoid repeated loading
+  const [cachedPreferences, setCachedPreferences] = useState<any>(null);
+  const [preferencesLoading, setPreferencesLoading] = useState(false);
   
   const [state, setState] = useState<UseAgentItineraryState>({
     isGenerating: false,
@@ -98,105 +105,189 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
     error: null,
   });
 
-  // Add state for itinerary creation progress
-  const [itineraryCreationStatus, setItineraryCreationStatus] = useState<'idle' | 'loading' | 'starting' | 'success' | 'error'>('idle');
+  // **STEP 3.3: ENHANCED STATUS MANAGEMENT**
+  const [itineraryCreationStatus, setItineraryCreationStatus] = useState<ItineraryCreationStatus>('idle');
   const [itineraryCreationProgress, setItineraryCreationProgress] = useState(0);
   const [itineraryCreationStep, setItineraryCreationStep] = useState('');
+  
+  // **STEP 3.3: DEBOUNCED PROGRESS UPDATES**
+  const [progressQueue, setProgressQueue] = useState<{progress: number; step: string} | null>(null);
+  const debouncedProgress = useDebounce(progressQueue, 150); // 150ms debounce
+  
+  // **STEP 3.3: ERROR TIMEOUT MANAGEMENT**
+  const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Apply debounced progress updates
+  useEffect(() => {
+    if (debouncedProgress) {
+      setItineraryCreationProgress(debouncedProgress.progress);
+      setItineraryCreationStep(debouncedProgress.step);
+    }
+  }, [debouncedProgress]);
+  
+  // **STEP 3.3: AUTO-CLEAR ERRORS AFTER TIMEOUT**
+  useEffect(() => {
+    if (itineraryCreationStatus === 'error' && itineraryCreationStep) {
+      errorTimeoutRef.current = setTimeout(() => {
+        if (itineraryCreationStatus === 'error') {
+          console.log('[useAgentItinerary] Auto-clearing error after timeout');
+          resetStatus();
+        }
+      }, 10000); // Auto-clear error after 10 seconds
+    }
+    
+    return () => {
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current);
+        errorTimeoutRef.current = null;
+      }
+    };
+  }, [itineraryCreationStatus, itineraryCreationStep]);
   
   // Clean up request on unmount
   useEffect(() => {
     return () => {
       requestManager.current.abort();
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current);
+      }
     };
   }, []);
   
-  // Helper function to convert onboarding preferences to enhanced format
-  const convertOnboardingToEnhanced = useCallback((onboardingPrefs: any) => {
-    if (!onboardingPrefs) return null;
+  // **STEP 3.3: UNIFIED STATUS RESET**
+  const resetStatus = useCallback(() => {
+    console.log('[useAgentItinerary] Resetting all status and clearing errors');
+    setItineraryCreationStatus('idle');
+    setItineraryCreationProgress(0);
+    setItineraryCreationStep('');
+    setProgressQueue(null);
+    setState(prev => ({
+      ...prev,
+      isGenerating: false,
+      isUpdating: false,
+      error: null,
+    }));
     
-    return {
-      travelStyle: onboardingPrefs.travel_style?.[0] || onboardingPrefs.travelStyle || 'cultural',
-      interests: (onboardingPrefs.activities || onboardingPrefs.interests || []).map((item: string) => ({
-        id: item.toLowerCase().replace(/\s+/g, ''),
-        label: item
-      })),
-      travelGroup: 'couple', // Default since onboarding doesn't capture this
-      budget: onboardingPrefs.budget || 'mid-range',
-      transportMode: 'walking', // Default since onboarding doesn't capture this
-      dietaryPreferences: (onboardingPrefs.preferences || onboardingPrefs.dietary_restrictions || []).map((item: string) => ({
-        id: item.toLowerCase().replace(/\s+/g, ''),
-        label: item
-      })),
-      pace: 'moderate' as const, // Default since onboarding doesn't capture this
-      lastUpdated: Date.now()
-    };
-  }, []);
-  
-  // Load and merge preferences from both systems
-  const loadMergedPreferences = useCallback(async () => {
-    try {
-      if (!user) return null;
-      
-      // Load from both systems in parallel
-      const [enhancedPrefs, onboardingPrefs] = await Promise.all([
-        UserPreferencesService.loadPreferences(),
-        supabase
-          .from('user_preferences')
-          .select('*')
-          .eq('user_id', user.id)
-          .single()
-          .then(({ data, error }) => error ? null : data)
-      ]);
-      
-      // If we have onboarding preferences but no enhanced preferences, convert and save
-      if (onboardingPrefs && !enhancedPrefs) {
-        const convertedPrefs = convertOnboardingToEnhanced(onboardingPrefs);
-        if (convertedPrefs) {
-          await UserPreferencesService.savePreferences(convertedPrefs);
-          return convertedPrefs;
-        }
-      }
-      
-      // If we have enhanced preferences but they're older than onboarding preferences, update them
-      if (enhancedPrefs && onboardingPrefs) {
-        const onboardingUpdated = onboardingPrefs.updated_at && typeof onboardingPrefs.updated_at === 'string' 
-          ? new Date(onboardingPrefs.updated_at).getTime() 
-          : 0;
-        const enhancedUpdated = enhancedPrefs.lastUpdated || 0;
-        
-        if (onboardingUpdated > enhancedUpdated) {
-          const convertedPrefs = convertOnboardingToEnhanced(onboardingPrefs);
-          if (convertedPrefs) {
-            // Merge with existing enhanced preferences to preserve fields not in onboarding
-            const mergedPrefs = {
-              ...enhancedPrefs,
-              ...convertedPrefs,
-              lastUpdated: Date.now()
-            };
-            await UserPreferencesService.savePreferences(mergedPrefs);
-            return mergedPrefs;
-          }
-        }
-      }
-      
-      // Return enhanced preferences if available, otherwise convert onboarding preferences
-      return enhancedPrefs || convertOnboardingToEnhanced(onboardingPrefs);
-    } catch (error) {
-      console.error('Error loading merged preferences:', error);
-      return enhancedPreferences; // Fallback to current enhanced preferences
+    // Clear error timeout
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+      errorTimeoutRef.current = null;
     }
-  }, [user, enhancedPreferences, convertOnboardingToEnhanced]);
+  }, []);
   
-  // Memoize enhanced preferences by combining user preferences with overrides
-  const getEnhancedPreferences = useCallback(async (preferencesOverride?: any) => {
-    // Load the most up-to-date preferences
-    const mergedPreferences = await loadMergedPreferences();
+  // **STEP 3.3: UNIFIED STATUS SETTERS** 
+  const setStatus = useCallback((status: ItineraryCreationStatus, message?: string) => {
+    console.log(`[useAgentItinerary] Status change: ${itineraryCreationStatus} → ${status}${message ? ` (${message})` : ''}`);
     
+    // Always clear error timeout when changing status
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+      errorTimeoutRef.current = null;
+    }
+    
+    setItineraryCreationStatus(status);
+    
+    // Update corresponding state flags
+    if (status === 'loading') {
+      setState(prev => ({ 
+        ...prev, 
+        isGenerating: true, 
+        isUpdating: false,
+        error: null // Clear errors when starting new operation
+      }));
+    } else if (status === 'success' || status === 'idle') {
+      setState(prev => ({ 
+        ...prev, 
+        isGenerating: false, 
+        isUpdating: false,
+        error: null 
+      }));
+    } else if (status === 'error') {
+      setState(prev => ({ 
+        ...prev, 
+        isGenerating: false, 
+        isUpdating: false,
+        error: message || 'An error occurred' 
+      }));
+    }
+    
+    if (message) {
+      setItineraryCreationStep(message);
+    }
+  }, [itineraryCreationStatus]);
+  
+  // Default preferences to use when none are found
+  const getDefaultPreferences = useCallback(() => ({
+    travelStyle: 'cultural',
+    interests: [],
+    travelGroup: 'couple',
+    budget: 'mid-range',
+    transportMode: 'walking',
+    dietaryPreferences: [],
+    pace: 'moderate',
+    lastUpdated: Date.now()
+  }), []);
+  
+  // Simplified preference loading with caching and proper fallbacks
+  const loadUserPreferences = useCallback(async (forceRefresh = false) => {
+    // Return cached preferences if available and not forcing refresh
+    if (cachedPreferences && !forceRefresh && !preferencesLoading) {
+      console.log('📦 useAgentItinerary: Using cached preferences');
+      return cachedPreferences;
+    }
+    
+    // Prevent multiple simultaneous loading attempts
+    if (preferencesLoading) {
+      console.log('📦 useAgentItinerary: Preferences already loading, waiting...');
+      // Wait for current loading to complete
+      while (preferencesLoading) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      return cachedPreferences || getDefaultPreferences();
+    }
+    
+    try {
+      setPreferencesLoading(true);
+      console.log('📦 useAgentItinerary: Loading user preferences from unified service');
+      
+      // Load preferences from unified service (handles all the complexity internally)
+      const preferences = await unifiedUserPreferencesService.loadPreferences();
+      
+      if (preferences) {
+        console.log('📦 useAgentItinerary: Successfully loaded user preferences');
+        setCachedPreferences(preferences);
+        return preferences;
+      } else {
+        console.log('📦 useAgentItinerary: No preferences found, using defaults');
+        const defaultPrefs = getDefaultPreferences();
+        setCachedPreferences(defaultPrefs);
+        return defaultPrefs;
+      }
+    } catch (error) {
+      console.error('Error loading user preferences:', error);
+      const defaultPrefs = getDefaultPreferences();
+      setCachedPreferences(defaultPrefs);
+      return defaultPrefs;
+    } finally {
+      setPreferencesLoading(false);
+    }
+  }, [cachedPreferences, preferencesLoading, getDefaultPreferences]);
+  
+  // Clear cached preferences when user changes
+  useEffect(() => {
+    setCachedPreferences(null);
+  }, [user?.id]);
+  
+  // Simple preference getter with override support
+  const getEnhancedPreferences = useCallback(async (preferencesOverride?: any) => {
+    const basePreferences = await loadUserPreferences();
+    
+    // Merge with any overrides provided
     return {
-      ...(mergedPreferences || enhancedPreferences || {}),
+      ...basePreferences,
       ...(preferencesOverride || {})
     };
-  }, [enhancedPreferences, loadMergedPreferences]);
+  }, [loadUserPreferences]);
   
   // Memoize the current itinerary in API format for updates
   const currentItineraryForApi = useMemo(() => {
@@ -234,23 +325,30 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
     };
   }, [itineraryDays]);
 
-  // Helper function to update progress
+  // **STEP 3.3: DEBOUNCED PROGRESS UPDATES**
   const updateProgress = useCallback((progress: number, step: string) => {
-    // Use requestAnimationFrame for smoother updates
-    requestAnimationFrame(() => {
+    console.log(`[useAgentItinerary] Progress update: ${progress}% - ${step}`);
+    
+    // Queue the progress update for debouncing
+    setProgressQueue({ progress, step });
+    
+    // For immediate visual feedback on major milestones, update directly
+    if (progress === 0 || progress === 100 || progress % 25 === 0) {
       setItineraryCreationProgress(progress);
       setItineraryCreationStep(step);
-    });
+    }
   }, []);
   
-  // Cancel itinerary creation
+  // **STEP 3.3: UNIFIED CANCELLATION**
   const cancelItineraryCreation = useCallback(() => {
+    console.log('[useAgentItinerary] Cancelling itinerary creation');
     requestManager.current.abort();
     requestManager.current = new AbortController();
-    setItineraryCreationStatus('idle');
-    setItineraryCreationProgress(0);
-    setItineraryCreationStep('');
-  }, []);
+    
+    // Use unified status reset
+    resetStatus();
+    finishItineraryCreation(); // Clear flag on cancel
+  }, [finishItineraryCreation, resetStatus]);
 
   // Enhanced itinerary creation with smooth progress updates
   const createEnhancedItinerary = useCallback(async (
@@ -261,21 +359,19 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
     preferences: any
   ): Promise<AgentItineraryResult> => {
     try {
-      // Reset state and show loading
-      setItineraryCreationStatus('loading');
-      setItineraryCreationProgress(0);
-      setItineraryCreationStep('Preparing your itinerary...');
+      // **STEP 3.3: UNIFIED STATUS INITIALIZATION**
+      console.log('[createEnhancedItinerary] Starting itinerary creation');
       
       // Abort any previous requests
       requestManager.current.abort();
       requestManager.current = new AbortController();
       
-      // Simulate initial progress with smoother transitions
-      await new Promise(resolve => setTimeout(resolve, 300));
-      updateProgress(5, 'Analyzing your destination...');
+      // Use unified status management
+      setStatus('loading', 'Preparing your itinerary...');
+      updateProgress(0, 'Initializing...');
       
-      await new Promise(resolve => setTimeout(resolve, 500));
-      updateProgress(15, 'Finding the best attractions for you...');
+      // **STREAMLINED PROGRESS** - No artificial delays
+      updateProgress(10, 'Configuring your preferences...');
       
       // Start the actual generation process
       const enhancedPreferences = {
@@ -284,14 +380,15 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
         ...preferences
       };
       
-      // Create a custom handler for progress updates
+      // Create a streamlined progress handler
       const handleProgress = (progress: number, message: string) => {
-        updateProgress(progress, message);
+        // Map service progress (20-100) to UI progress (20-90)
+        const mappedProgress = 20 + (progress - 20) * 0.7;
+        updateProgress(Math.min(mappedProgress, 90), message);
       };
       
-      // Simulate more progress before API call
-      await new Promise(resolve => setTimeout(resolve, 400));
-      updateProgress(25, 'Creating your personalized itinerary...');
+      // **SINGLE API CALL APPROACH** - No delays
+      updateProgress(20, 'Generating your personalized itinerary...');
       
       // Call the API with progress updates
       let result;
@@ -313,10 +410,10 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
           throw new Error('Failed to generate itinerary - no data returned');
         }
       } catch (error: any) {
-        // Handle abort errors gracefully
+        // **STEP 3.3: UNIFIED ERROR HANDLING**
         if (error && (error.name === 'AbortError' || (error.message && (error as Error).message.includes('abort')))) {
-          console.log('Itinerary generation was aborted');
-          setItineraryCreationStatus('idle');
+          console.log('[createEnhancedItinerary] Itinerary generation was aborted');
+          setStatus('idle', '');
           return {
             success: false,
             message: 'Itinerary generation was canceled',
@@ -331,16 +428,26 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
       }
       
       // Clear session storage but don't clear state yet
+      console.log('[createEnhancedItinerary] Clearing existing itinerary for destination:', destination);
       clearSessionStorage();
       
       // Make sure to completely clear existing days to prevent accumulation
       clearItineraryDays();
       
-      // Small delay to ensure clearing is complete
-      await new Promise(resolve => setTimeout(resolve, 50));
+      // Clear conversation flow manager to start fresh
+      try {
+        conversationFlowManager.clearAllData();
+        console.log('Cleared conversation flow manager for new enhanced itinerary');
+        
+        // **DESTINATION SYNC**: Start new session with correct destination
+        conversationFlowManager.startSession(user?.id, destination);
+        console.log('Started new conversation session with destination:', destination);
+      } catch (error) {
+        console.error('Error clearing conversation flow manager:', error);
+      }
       
-      // Convert and add the new itinerary
-      updateProgress(85, 'Finalizing your itinerary...');
+      // **SIMPLIFIED STATE MANAGEMENT** - Cleanup and setup
+      updateProgress(92, 'Setting up your itinerary...');
       
       const { days: formattedDays, title } = convertItineraryApiToContext(result);
       
@@ -352,46 +459,32 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
       // Sort days by day number
       const sortedDays = [...formattedDays].sort((a, b) => a.dayNumber - b.dayNumber);
       
-      // First set our local state
+      // Set local state
       setState(prev => ({
         ...prev,
         lastAction: 'generate',
       }));
       
-      // Wait a moment to ensure the state is updated
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Now add each day to the context
+      // Add all days to the context efficiently
+      updateProgress(95, 'Adding itinerary days...');
       console.log(`[useAgentItinerary] Adding ${sortedDays.length} new days to itinerary`);
       
-      // Add days one by one to ensure they get created properly
-      let daysAdded = 0;
-      for (const day of sortedDays) {
-        console.log(`[useAgentItinerary] Adding day ${day.dayNumber} to itinerary`);
+      sortedDays.forEach(day => {
         addDay(day);
-        daysAdded++;
-        
-        // Small delay between adding days to prevent UI stuttering
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
+      });
       
-      console.log(`[useAgentItinerary] Added ${daysAdded} days to itinerary`);
+      console.log(`[useAgentItinerary] Added ${sortedDays.length} days to itinerary`);
       
       // Force a refresh after adding all days to ensure UI updates
-      console.log('[useAgentItinerary] Initial refresh after adding days');
       forceRefresh();
       
-      // Auto-save the itinerary only if we have days
-      let itineraryId = null;
-      updateProgress(95, 'Saving your itinerary...');
+      // Auto-save the itinerary
+      updateProgress(98, 'Saving your itinerary...');
       
-      // Wait a moment to ensure all days are properly added before saving
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      if (sortedDays.length > 0) {
+              if (sortedDays.length > 0) {
         try {
           console.log('[useAgentItinerary] Saving itinerary with title:', title);
-          itineraryId = await saveItinerary(title);
+          const itineraryId = await saveItinerary(title);
           console.log(`[useAgentItinerary] Automatically saved itinerary with title: "${title}", ID: ${itineraryId}`);
         } catch (saveError) {
           console.error('Failed to save itinerary:', saveError);
@@ -399,23 +492,18 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
         }
       }
       
-      // Complete
+      // **STEP 3.3: UNIFIED SUCCESS COMPLETION**
       updateProgress(100, 'Your itinerary is ready!');
-      setItineraryCreationStatus('success');
+      setStatus('success', 'Your itinerary is ready!');
       
-      // Ensure all components receive the updated itinerary
-      // Force a UI refresh by updating the state after a short delay
-      setTimeout(() => {
-        // This will trigger a re-render in components using this hook
-        setState(prev => ({ 
-          ...prev,
-          lastAction: 'generate',
-          isGenerating: false,
-          error: null
-        }));
-        
-        // No need for additional refresh calls here - one is enough
-      }, 100);
+      // Clear the creation flag to allow normal operations
+      finishItineraryCreation();
+      
+      // Update last action
+      setState(prev => ({ 
+        ...prev,
+        lastAction: 'generate'
+      }));
       
       // Return success
       return {
@@ -427,28 +515,29 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
         },
       };
     } catch (error: any) {
-      console.error('Error creating enhanced itinerary:', error);
+      console.error('[createEnhancedItinerary] Error creating enhanced itinerary:', error);
       
-      // Handle abort
+      // **STEP 3.3: UNIFIED ERROR HANDLING**
       if (error.name === 'AbortError') {
-        setItineraryCreationStatus('idle');
+        setStatus('idle', '');
+        finishItineraryCreation();
         return {
           success: false,
           message: 'Itinerary creation canceled',
         };
       }
       
-      // Handle other errors
-      setItineraryCreationStatus('error');
-      setItineraryCreationStep((error as Error).message || 'Failed to create itinerary');
+      // Handle other errors with unified status
+      const errorMessage = (error as Error).message || 'Failed to create itinerary';
+      setStatus('error', errorMessage);
+      finishItineraryCreation();
       
       return {
         success: false,
-        message: (error as Error).message || 'Failed to create itinerary',
+        message: errorMessage,
       };
     }
   }, [
-    enhancedPreferences,
     itineraryDays,
     addDay,
     clearSessionStorage,
@@ -456,7 +545,9 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
     saveItinerary,
     updateProgress,
     forceRefresh,
-    clearItineraryDays
+    clearItineraryDays,
+    finishItineraryCreation,
+    user?.id
   ]);
   
   /**
@@ -469,12 +560,9 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
     preferencesOverride?: any
   ): Promise<AgentItineraryResult> => {
     try {
-      // Update state to indicate generation in progress
-      setState(prev => ({
-        ...prev,
-        isGenerating: true,
-        error: null,
-      }));
+      // **STEP 3.3: UNIFIED STATUS FOR GENERATION**
+      console.log('[generateItinerary] Starting itinerary generation');
+      setStatus('loading', 'Generating itinerary...');
       
       // Abort any in-flight requests
       requestManager.current.abort();
@@ -498,23 +586,27 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
       }
       
       // Clear existing itinerary - both localStorage and state
+      console.log('[generateItinerary] Clearing existing itinerary for destination:', destination);
       clearSessionStorage();
       
       // First clear the existing days before adding new ones
       // This is critical to prevent accumulation of days
       clearItineraryDays();
       
-      // Clear chat messages when starting a completely new itinerary
-      // This provides a clean slate for the new trip planning session
+      // Clear conversation flow manager to start fresh
       try {
-        localStorage.removeItem('chat_messages_session');
-        console.log('Cleared chat messages for new itinerary generation');
+        conversationFlowManager.clearAllData();
+        console.log('Cleared conversation flow manager for new itinerary');
+        
+        // **DESTINATION SYNC**: Start new session with correct destination
+        conversationFlowManager.startSession(user?.id, destination);
+        console.log('Started new conversation session with destination:', destination);
       } catch (error) {
-        console.error('Error clearing chat messages:', error);
+        console.error('Error clearing conversation flow manager:', error);
       }
       
-      // Wait a small time to ensure clearing is complete
-      await new Promise(resolve => setTimeout(resolve, 50));
+      // Note: We preserve chat messages to maintain conversation continuity
+      // Users should be able to continue their conversation even after generating new itineraries
       
       // Convert the API data format to the format expected by ItineraryContext
       const { days: formattedDays, title } = convertItineraryApiToContext(itineraryData);
@@ -531,13 +623,15 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
       const itineraryId = await saveItinerary(title);
       console.log(`Automatically saved itinerary with title: "${title}", ID: ${itineraryId}`);
       
-      // Update state to indicate generation complete
+      // **STEP 3.3: UNIFIED SUCCESS FOR GENERATION**
+      setStatus('success', 'Itinerary generated successfully!');
       setState(prev => ({
         ...prev,
-        isGenerating: false,
         lastAction: 'generate',
-        error: null,
       }));
+      
+      // Clear the creation flag to allow normal operations
+      finishItineraryCreation();
       
       return {
         success: true,
@@ -548,37 +642,38 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
         },
       };
     } catch (error: any) {
-      // Handle errors
+      // **STEP 3.3: UNIFIED ERROR HANDLING FOR GENERATION**
       if (error.name === 'AbortError') {
-        console.log('Itinerary generation aborted');
+        console.log('[generateItinerary] Generation aborted');
+        setStatus('idle', '');
+        finishItineraryCreation();
         return {
           success: false,
           message: 'Generation aborted',
         };
       }
       
-      console.error('Error generating itinerary:', error);
+      console.error('[generateItinerary] Error generating itinerary:', error);
       
-      setState(prev => ({
-        ...prev,
-        isGenerating: false,
-        error: error.message || 'Failed to generate itinerary',
-      }));
+      const errorMessage = error.message || 'Failed to generate itinerary';
+      setStatus('error', errorMessage);
+      finishItineraryCreation();
       
       return {
         success: false,
-        message: error.message || 'Failed to generate itinerary',
+        message: errorMessage,
       };
     }
   }, [
-    enhancedPreferences, 
     itineraryDays, 
     addDay, 
     clearSessionStorage, 
     savePreviousItinerary, 
     saveItinerary, 
     getEnhancedPreferences,
-    clearItineraryDays
+    clearItineraryDays,
+    finishItineraryCreation,
+    user?.id
   ]);
   
   /**
@@ -596,7 +691,8 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
         };
       }
       
-      // Update state to indicate update in progress
+      // **STEP 3.3: UNIFIED STATUS FOR UPDATE**
+      console.log('[updateItinerary] Starting itinerary update');
       setState(prev => ({
         ...prev,
         isUpdating: true,
@@ -623,9 +719,6 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
       clearSessionStorage();
       clearItineraryDays();
 
-      // Wait a small time to ensure clearing is complete
-      await new Promise(resolve => setTimeout(resolve, 50));
-
       // Convert and add updated days
       const { days: formattedDays, title, destination: newDestination } = convertItineraryApiToContext(updatedItinerary);
       
@@ -651,13 +744,16 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
       const itineraryId = await saveItinerary(finalTitle);
       console.log(`Automatically saved updated itinerary with title: "${finalTitle}", ID: ${itineraryId}`);
       
-      // Update state to indicate update complete
+      // **STEP 3.3: UNIFIED SUCCESS FOR UPDATE**
       setState(prev => ({
         ...prev,
         isUpdating: false,
         lastAction: 'update',
         error: null,
       }));
+      
+      // Clear the creation flag to allow normal operations
+      finishItineraryCreation();
       
       return {
         success: true,
@@ -668,17 +764,21 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
         },
       };
     } catch (error: any) {
-      console.error('Error updating itinerary:', error);
+      console.error('[updateItinerary] Error updating itinerary:', error);
       
+      // **STEP 3.3: UNIFIED ERROR HANDLING FOR UPDATE**
+      const errorMessage = error.message || 'Failed to update itinerary';
       setState(prev => ({
         ...prev,
         isUpdating: false,
-        error: error.message || 'Failed to update itinerary',
+        error: errorMessage,
       }));
+      
+      finishItineraryCreation();
       
       return {
         success: false,
-        message: error.message || 'Failed to update itinerary',
+        message: errorMessage,
       };
     }
   }, [
@@ -688,7 +788,8 @@ export function useAgentItinerary(): UseAgentItineraryState & UseAgentItineraryA
     savePreviousItinerary,
     saveItinerary,
     currentItineraryForApi,
-    clearItineraryDays
+    clearItineraryDays,
+    finishItineraryCreation
   ]);
   
   /**
@@ -828,10 +929,13 @@ Return a JSON object with:
     try {
       if (!user) return;
       
+      // Get current preferences from unified service
+      const currentPreferences = await loadUserPreferences();
+      
       // Extract preferences from the user input
       const extractedPreferences = await enhancedOpenAIService.extractUserPreferences(
         userInput,
-        enhancedPreferences || {}
+        currentPreferences || {}
       );
       
       // Only update if we extracted meaningful preferences
@@ -844,25 +948,26 @@ Return a JSON object with:
       });
       
       if (hasExtracted) {
-        // Update preferences in context
-        updatePreferences(extractedPreferences);
+        console.log('📦 useAgentItinerary: Updating preferences from conversation');
         
         // Store inferred preferences for this user
-        UserPreferencesService.saveInferredPreferences(user.id, extractedPreferences);
+        unifiedUserPreferencesService.saveInferredPreferences(extractedPreferences);
         
-        // Also update in database if significant changes
+        // Update preferences in unified service if significant changes
         if (Object.keys(extractedPreferences).length > 2) {
-          await UserPreferencesService.updateFromConversationInferences(
-            user.id,
+          await unifiedUserPreferencesService.updateFromConversationInferences(
             extractedPreferences
           );
+          
+          // Clear our cached preferences to force reload with new data
+          setCachedPreferences(null);
         }
       }
     } catch (error) {
       console.error('Error updating preferences from conversation:', error);
       // Don't throw - this is a background enhancement
     }
-  }, [user, enhancedPreferences, updatePreferences]);
+  }, [user, loadUserPreferences, setCachedPreferences]);
   
   return {
     ...state,

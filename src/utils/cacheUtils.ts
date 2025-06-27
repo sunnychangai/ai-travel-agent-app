@@ -375,6 +375,32 @@ export class ApiCache<T> {
   }
   
   /**
+   * Delete a specific entry from the cache
+   * @param key Cache key to delete
+   */
+  delete(key: string): boolean {
+    const cacheKey = `${this.namespace}:${key}`;
+    const existed = this.cache.has(cacheKey);
+    
+    // Remove from memory cache
+    this.cache.delete(cacheKey);
+    
+    // Remove any refresh callbacks for this key
+    this.refreshCallbacks.delete(cacheKey);
+    
+    // Remove from localStorage if persistence is enabled
+    if (this.persistence) {
+      try {
+        localStorage.removeItem(`cache:${cacheKey}`);
+      } catch (e) {
+        console.warn('Failed to remove item from localStorage', e);
+      }
+    }
+    
+    return existed;
+  }
+  
+  /**
    * Remove expired entries from the cache
    */
   private cleanup(): void {
@@ -527,4 +553,199 @@ function hashString(str: string): string {
     hash = hash & hash; // Convert to 32bit integer
   }
   return Math.abs(hash).toString(36);
-} 
+}
+
+// Debounced localStorage utility for performance optimization
+export class DebouncedStorage {
+  private static instance: DebouncedStorage;
+  private pendingWrites: Map<string, any> = new Map();
+  private writeTimer: NodeJS.Timeout | null = null;
+  private readonly debounceDelay: number;
+
+  private constructor(debounceDelay: number = 500) {
+    this.debounceDelay = debounceDelay;
+    
+    // Ensure cleanup on page unload
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => {
+        this.flush(); // Force write pending data before page unloads
+      });
+    }
+  }
+
+  /**
+   * Get singleton instance of DebouncedStorage
+   */
+  public static getInstance(debounceDelay?: number): DebouncedStorage {
+    if (!DebouncedStorage.instance) {
+      DebouncedStorage.instance = new DebouncedStorage(debounceDelay);
+    }
+    return DebouncedStorage.instance;
+  }
+
+  /**
+   * Set an item in localStorage with debouncing
+   * @param key Storage key
+   * @param value Value to store (will be JSON.stringified)
+   */
+  public setItem(key: string, value: any): void {
+    // Add to pending writes
+    this.pendingWrites.set(key, value);
+
+    // Clear existing timer
+    if (this.writeTimer) {
+      clearTimeout(this.writeTimer);
+    }
+
+    // Set new timer
+    this.writeTimer = setTimeout(() => {
+      this.executePendingWrites();
+    }, this.debounceDelay);
+  }
+
+  /**
+   * Get an item from localStorage (immediate read)
+   * @param key Storage key
+   * @param defaultValue Default value if key doesn't exist
+   */
+  public getItem<T>(key: string, defaultValue: T): T {
+    // Check pending writes first (most recent data)
+    if (this.pendingWrites.has(key)) {
+      return this.pendingWrites.get(key) as T;
+    }
+
+    // Fall back to localStorage
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : defaultValue;
+    } catch (error) {
+      console.error(`Error reading ${key} from localStorage:`, error);
+      return defaultValue;
+    }
+  }
+
+  /**
+   * Remove an item from localStorage with debouncing
+   * @param key Storage key to remove
+   */
+  public removeItem(key: string): void {
+    // Mark for deletion by setting to undefined
+    this.pendingWrites.set(key, undefined);
+
+    // Clear existing timer
+    if (this.writeTimer) {
+      clearTimeout(this.writeTimer);
+    }
+
+    // Set new timer
+    this.writeTimer = setTimeout(() => {
+      this.executePendingWrites();
+    }, this.debounceDelay);
+  }
+
+  /**
+   * Immediately execute all pending writes (force flush)
+   */
+  public flush(): void {
+    if (this.writeTimer) {
+      clearTimeout(this.writeTimer);
+      this.writeTimer = null;
+    }
+    this.executePendingWrites();
+  }
+
+  /**
+   * Get the number of pending writes
+   */
+  public getPendingWriteCount(): number {
+    return this.pendingWrites.size;
+  }
+
+  /**
+   * Check if there are pending writes for a specific key
+   */
+  public hasPendingWrite(key: string): boolean {
+    return this.pendingWrites.has(key);
+  }
+
+  /**
+   * Execute all pending localStorage operations
+   */
+  private executePendingWrites(): void {
+    if (this.pendingWrites.size === 0) return;
+
+    console.log(`📦 DebouncedStorage: Executing ${this.pendingWrites.size} pending localStorage operations`);
+
+    // Group operations for better performance
+    const writes: Array<[string, any]> = [];
+    const deletions: string[] = [];
+
+    for (const [key, value] of this.pendingWrites) {
+      if (value === undefined) {
+        deletions.push(key);
+      } else {
+        writes.push([key, value]);
+      }
+    }
+
+    try {
+      // Execute deletions first
+      deletions.forEach(key => {
+        localStorage.removeItem(key);
+        console.log(`🗑️ DebouncedStorage: Removed ${key}`);
+      });
+
+      // Execute writes
+      writes.forEach(([key, value]) => {
+        localStorage.setItem(key, JSON.stringify(value));
+        console.log(`💾 DebouncedStorage: Saved ${key}`);
+      });
+
+      console.log(`✅ DebouncedStorage: Successfully completed ${this.pendingWrites.size} operations`);
+    } catch (error) {
+      console.error('❌ DebouncedStorage: Error executing pending writes:', error);
+      
+      // If localStorage is full, try to clear some old data
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        this.handleStorageQuotaExceeded();
+      }
+    }
+
+    // Clear pending writes
+    this.pendingWrites.clear();
+    this.writeTimer = null;
+  }
+
+  /**
+   * Handle localStorage quota exceeded by clearing old data
+   */
+  private handleStorageQuotaExceeded(): void {
+    console.warn('🚨 DebouncedStorage: localStorage quota exceeded, attempting cleanup');
+    
+    try {
+      // Get all keys and their approximate ages
+      const keysToCheck = [];
+      
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && !key.startsWith('itinerary_') && !key.startsWith('current_itinerary_')) {
+          // Don't delete core itinerary data, but check other keys
+          keysToCheck.push(key);
+        }
+      }
+
+      // Remove oldest non-essential data (simple heuristic)
+      const keysToRemove = keysToCheck.slice(0, Math.min(5, keysToCheck.length));
+      keysToRemove.forEach(key => {
+        localStorage.removeItem(key);
+        console.log(`🧹 DebouncedStorage: Cleaned up ${key} due to quota exceeded`);
+      });
+
+    } catch (cleanupError) {
+      console.error('❌ DebouncedStorage: Error during quota cleanup:', cleanupError);
+    }
+  }
+}
+
+// Export a default instance for convenience
+export const debouncedStorage = DebouncedStorage.getInstance(); 

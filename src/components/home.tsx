@@ -4,6 +4,7 @@ import { Settings, Menu, HelpCircle, MapPin, MessageSquare, Package } from 'luci
 import Onboarding from '../pages/Onboarding';
 import FeedbackPage from './feedback/FeedbackPage';
 import VersionHistoryPage from './version-history/VersionHistoryPage';
+import MyTripsPage from '../pages/MyTrips';
 import TravelPlannerLayout from "./TravelPlanner/TravelPlannerLayout";
 import {
   DropdownMenu,
@@ -19,6 +20,7 @@ const Header = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showMyTrips, setShowMyTrips] = useState(false);
 
   return (
     <>
@@ -55,11 +57,12 @@ const Header = () => {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem asChild>
-                <Link to="/my-trips" className="flex items-center w-full">
-                  <MapPin className="h-4 w-4 mr-2" />
-                  My Trips
-                </Link>
+              <DropdownMenuItem 
+                className="flex items-center"
+                onClick={() => setShowMyTrips(true)}
+              >
+                <MapPin className="h-4 w-4 mr-2" />
+                My Trips
               </DropdownMenuItem>
               <DropdownMenuItem 
                 className="flex items-center"
@@ -115,6 +118,21 @@ const Header = () => {
           </DialogHeader>
           <div className="overflow-y-auto max-h-[calc(90vh-100px)]">
             <VersionHistoryPage />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* My Trips Modal */}
+      <Dialog open={showMyTrips} onOpenChange={setShowMyTrips}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              My Trips
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto max-h-[calc(90vh-100px)]">
+            <MyTripsPage onClose={() => setShowMyTrips(false)} />
           </div>
         </DialogContent>
       </Dialog>

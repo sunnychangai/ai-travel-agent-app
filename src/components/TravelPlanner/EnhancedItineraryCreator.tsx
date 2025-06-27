@@ -13,7 +13,7 @@ import {
 } from '../ui/select';
 import { Slider } from '../ui/slider';
 import { Badge } from '../ui/badge';
-import UserPreferencesService from '../../services/userPreferencesService';
+import { unifiedUserPreferencesService } from '../../services/unifiedUserPreferencesService';
 
 interface EnhancedItineraryCreatorProps {
   initialDestination?: string;
@@ -134,7 +134,7 @@ const EnhancedItineraryCreator: React.FC<EnhancedItineraryCreatorProps> = ({
   // Load saved preferences on component mount
   useEffect(() => {
     const loadSavedPreferences = async () => {
-      const savedPreferences = await UserPreferencesService.loadPreferences();
+              const savedPreferences = await unifiedUserPreferencesService.loadPreferences();
       if (savedPreferences) {
         updateFormStateFromPreferences(savedPreferences);
         setHasLoadedPreferences(true);
@@ -142,7 +142,7 @@ const EnhancedItineraryCreator: React.FC<EnhancedItineraryCreatorProps> = ({
     };
     
     // Load sync first for immediate UI response
-    const syncPrefs = UserPreferencesService.getPreferencesSync();
+          const syncPrefs = unifiedUserPreferencesService.getPreferencesSync();
     if (syncPrefs) {
       updateFormStateFromPreferences(syncPrefs);
       setHasLoadedPreferences(true);
@@ -184,7 +184,7 @@ const EnhancedItineraryCreator: React.FC<EnhancedItineraryCreatorProps> = ({
       };
       
       // Save in background - don't await
-      UserPreferencesService.savePreferences(preferencesToSave);
+      unifiedUserPreferencesService.savePreferences(preferencesToSave);
     } else if (selectedInterests.length > 0) {
       // We've finished initial state setup, mark as loaded
       setHasLoadedPreferences(true);
@@ -251,7 +251,7 @@ const EnhancedItineraryCreator: React.FC<EnhancedItineraryCreatorProps> = ({
     const userPreferences = createPreferencesObject();
     
     // Save the preferences to storage - don't await to avoid blocking UI
-    UserPreferencesService.savePreferences(userPreferences);
+          unifiedUserPreferencesService.savePreferences(userPreferences);
     
     // Create the itinerary using the structured preferences
     const result = await createEnhancedItinerary(

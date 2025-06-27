@@ -1,6 +1,6 @@
-// TripAdvisor API service
-import { ApiCache } from '../utils/cacheUtils';
-import { fetchWithRetry, ApiError, fetchWithCache, tripAdvisorCache } from '../utils/apiUtils';
+// TripAdvisor API service - Updated to use unified API cache system
+import { unifiedApiCache } from './unifiedApiCacheService';
+import { ApiError } from '../utils/apiUtils';
 
 const apiKey = import.meta.env.VITE_TRIPADVISOR_API_KEY;
 
@@ -8,33 +8,75 @@ if (!apiKey) {
   console.warn('TripAdvisor API key missing. Check your .env file.');
 }
 
-// Helper function to use a proxy for API requests to avoid CORS issues and utilize caching
-const fetchWithProxyAndCache = async <T>(url: string, options: RequestInit = {}, cacheKey?: string): Promise<T> => {
+// Unified API request wrapper for TripAdvisor API
+const makeTripadvisorRequest = async <T>(
+  endpoint: string,
+  options: {
+    signal?: AbortSignal;
+    cacheKey?: string;
+    cacheParams?: Record<string, any>;
+    timeout?: number;
+    useCorsProxy?: boolean;
+  } = {}
+): Promise<T> => {
+  const { 
+    signal, 
+    cacheKey, 
+    cacheParams, 
+    timeout = 10000,
+    useCorsProxy = false 
+  } = options;
+
+  // Build the URL
+  let url = endpoint;
+  if (useCorsProxy) {
+    const corsProxyUrl = 'https://corsproxy.io/?';
+    url = corsProxyUrl + encodeURIComponent(endpoint);
+  }
+
   try {
-    // Try with cache first
-    return await fetchWithCache<T>(
-      url,
-      options,
-      {
-        useCache: true,
-        cacheKey: cacheKey || url,
-        cache: tripAdvisorCache
-      }
-    );
-  } catch (error) {
-    // If it fails due to CORS, try with proxy
-    if (error instanceof ApiError && error.isNetworkError) {
-      console.warn('Direct API call failed, likely due to CORS. Trying with proxy...');
-      const corsProxyUrl = 'https://corsproxy.io/?';
-      return await fetchWithCache<T>(
-        corsProxyUrl + encodeURIComponent(url),
-        options,
-        {
-          useCache: true,
-          cacheKey: cacheKey || url,
-          cache: tripAdvisorCache
+    // Use unified API cache with TripAdvisor-specific configuration
+    return await unifiedApiCache.request<T>('tripadvisor-api', url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      signal,
+      retryOptions: {
+        maxRetries: 3,
+        initialDelay: 1000,
+        maxDelay: 8000,
+        shouldRetry: (error) => {
+          if (error instanceof ApiError) {
+            return (
+              error.isNetworkError || 
+              error.isRateLimitError || 
+              error.status === 502 || 
+              error.status === 503 || 
+              error.status === 504
+            );
+          }
+          return false;
         }
-      );
+      },
+      cacheOptions: {
+        useCache: true,
+        cacheKey,
+        cacheParams,
+        forceFresh: false
+      },
+      deduplication: { enabled: true, expiryMs: 2000 },
+      debouncing: { enabled: false }
+    });
+  } catch (error: any) {
+    // If direct API call fails due to CORS, try with proxy
+    if (!useCorsProxy && error instanceof ApiError && (error.isNetworkError || error.status === 0)) {
+      console.warn('Direct TripAdvisor API call failed, trying with CORS proxy...');
+      return makeTripadvisorRequest<T>(endpoint, { 
+        ...options, 
+        useCorsProxy: true 
+      });
     }
     throw error;
   }
@@ -151,7 +193,8 @@ export const tripAdvisorService = {
    */
   async searchLocations(
     query: string,
-    category?: string
+    category?: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<TripAdvisorLocation[]> {
     if (!apiKey) {
       console.warn('Using mock data for TripAdvisor locations search');
@@ -170,9 +213,12 @@ export const tripAdvisorService = {
       }
 
       const url = `https://api.content.tripadvisor.com/api/v1/location/search?${params}`;
-      const cacheKey = `tripadvisor_search_${query}_${category || ''}`;
       
-      const response = await fetchWithProxyAndCache<TripAdvisorSearchResponse>(url, {}, cacheKey);
+      const response = await makeTripadvisorRequest<TripAdvisorSearchResponse>(url, {
+        signal: options.signal,
+        cacheKey: `search_${query}_${category || 'all'}`,
+        cacheParams: { query, category }
+      });
 
       if (!response.data) {
         console.error('TripAdvisor API error: No data in response');
@@ -189,7 +235,10 @@ export const tripAdvisorService = {
   /**
    * Get location details by ID
    */
-  async getLocationDetails(locationId: string): Promise<TripAdvisorLocation> {
+  async getLocationDetails(
+    locationId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<TripAdvisorLocation> {
     if (!apiKey) {
       console.warn('Using mock data for TripAdvisor location details');
       return getMockLocationDetails(locationId);
@@ -203,9 +252,12 @@ export const tripAdvisorService = {
       });
 
       const url = `https://api.content.tripadvisor.com/api/v1/location/${locationId}/details?${params}`;
-      const cacheKey = `tripadvisor_location_${locationId}`;
       
-      const response = await fetchWithProxyAndCache<TripAdvisorLocation>(url, {}, cacheKey);
+      const response = await makeTripadvisorRequest<TripAdvisorLocation>(url, {
+        signal: options.signal,
+        cacheKey: `details_${locationId}`,
+        cacheParams: { locationId }
+      });
 
       return response;
     } catch (error) {
@@ -217,7 +269,16 @@ export const tripAdvisorService = {
   /**
    * Get reviews for a location
    */
-  async getLocationReviews(locationId: string, limit: number = 5): Promise<TripAdvisorReview[]> {
+  async getLocationReviews(
+    locationId: string, 
+    limit: number = 5,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<TripAdvisorReview[]> {
+    if (!apiKey) {
+      console.warn('TripAdvisor API key missing. Cannot fetch reviews.');
+      return [];
+    }
+
     try {
       const params = new URLSearchParams({
         key: apiKey,
@@ -225,24 +286,18 @@ export const tripAdvisorService = {
         limit: limit.toString(),
       });
 
-      const response = await fetch(
-        `https://api.content.tripadvisor.com/api/v1/location/${locationId}/reviews?${params.toString()}`,
-        {
-          headers: {
-            'Accept': 'application/json'
-          }
-        }
-      );
+      const url = `https://api.content.tripadvisor.com/api/v1/location/${locationId}/reviews?${params}`;
+      
+      const response = await makeTripadvisorRequest<TripAdvisorReviewsResponse>(url, {
+        signal: options.signal,
+        cacheKey: `reviews_${locationId}_${limit}`,
+        cacheParams: { locationId, limit }
+      });
 
-      if (!response.ok) {
-        throw new Error(`TripAdvisor API error: ${response.statusText}`);
-      }
-
-      const data: TripAdvisorReviewsResponse = await response.json();
-      return data.data || [];
+      return response.data || [];
     } catch (error) {
       console.error('Error getting TripAdvisor reviews:', error);
-      throw error;
+      return [];
     }
   },
 
@@ -253,8 +308,14 @@ export const tripAdvisorService = {
     latitude: number,
     longitude: number,
     radius: number = 10,
-    limit: number = 10
+    limit: number = 10,
+    options: { signal?: AbortSignal } = {}
   ): Promise<TripAdvisorAttraction[]> {
+    if (!apiKey) {
+      console.warn('TripAdvisor API key missing. Cannot fetch nearby attractions.');
+      return [];
+    }
+
     try {
       const params = new URLSearchParams({
         key: apiKey,
@@ -265,31 +326,34 @@ export const tripAdvisorService = {
         category: 'attractions',
       });
 
-      const response = await fetch(
-        `https://api.content.tripadvisor.com/api/v1/location/nearby_search?${params.toString()}`,
-        {
-          headers: {
-            'Accept': 'application/json'
-          }
-        }
-      );
+      const url = `https://api.content.tripadvisor.com/api/v1/location/nearby_search?${params}`;
+      
+      const response = await makeTripadvisorRequest<TripAdvisorSearchResponse>(url, {
+        signal: options.signal,
+        cacheKey: `nearby_${latitude}_${longitude}_${radius}_${limit}`,
+        cacheParams: { latitude, longitude, radius, limit }
+      });
 
-      if (!response.ok) {
-        throw new Error(`TripAdvisor API error: ${response.statusText}`);
-      }
-
-      const data: TripAdvisorSearchResponse = await response.json();
-      return data.data as TripAdvisorAttraction[] || [];
+      return (response.data as TripAdvisorAttraction[]) || [];
     } catch (error) {
       console.error('Error getting nearby TripAdvisor attractions:', error);
-      throw error;
+      return [];
     }
   },
 
   /**
    * Get attraction photos
    */
-  async getLocationPhotos(locationId: string, limit: number = 5): Promise<any[]> {
+  async getLocationPhotos(
+    locationId: string, 
+    limit: number = 5,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<any[]> {
+    if (!apiKey) {
+      console.warn('TripAdvisor API key missing. Cannot fetch photos.');
+      return [];
+    }
+
     try {
       const params = new URLSearchParams({
         key: apiKey,
@@ -297,24 +361,18 @@ export const tripAdvisorService = {
         limit: limit.toString(),
       });
 
-      const response = await fetch(
-        `https://api.content.tripadvisor.com/api/v1/location/${locationId}/photos?${params.toString()}`,
-        {
-          headers: {
-            'Accept': 'application/json'
-          }
-        }
-      );
+      const url = `https://api.content.tripadvisor.com/api/v1/location/${locationId}/photos?${params}`;
+      
+      const response = await makeTripadvisorRequest<{ data: any[] }>(url, {
+        signal: options.signal,
+        cacheKey: `photos_${locationId}_${limit}`,
+        cacheParams: { locationId, limit }
+      });
 
-      if (!response.ok) {
-        throw new Error(`TripAdvisor API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data.data || [];
+      return response.data || [];
     } catch (error) {
       console.error('Error getting TripAdvisor photos:', error);
-      throw error;
+      return [];
     }
   },
 
@@ -323,8 +381,14 @@ export const tripAdvisorService = {
    */
   async searchTours(
     locationId: string,
-    limit: number = 10
+    limit: number = 10,
+    options: { signal?: AbortSignal } = {}
   ): Promise<any[]> {
+    if (!apiKey) {
+      console.warn('TripAdvisor API key missing. Cannot fetch tours.');
+      return [];
+    }
+
     try {
       const params = new URLSearchParams({
         key: apiKey,
@@ -332,24 +396,18 @@ export const tripAdvisorService = {
         limit: limit.toString(),
       });
 
-      const response = await fetch(
-        `https://api.content.tripadvisor.com/api/v1/location/${locationId}/attractions?${params.toString()}`,
-        {
-          headers: {
-            'Accept': 'application/json'
-          }
-        }
-      );
+      const url = `https://api.content.tripadvisor.com/api/v1/location/${locationId}/attractions?${params}`;
+      
+      const response = await makeTripadvisorRequest<{ data: any[] }>(url, {
+        signal: options.signal,
+        cacheKey: `tours_${locationId}_${limit}`,
+        cacheParams: { locationId, limit }
+      });
 
-      if (!response.ok) {
-        throw new Error(`TripAdvisor API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data.data || [];
+      return response.data || [];
     } catch (error) {
       console.error('Error searching TripAdvisor tours:', error);
-      throw error;
+      return [];
     }
   }
 };

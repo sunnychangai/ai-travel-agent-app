@@ -2,12 +2,7 @@
  * Utilities for API requests with retry logic and error handling
  */
 
-import { ApiCache } from './cacheUtils';
-
-// Create caches for different API endpoints
-export const tripAdvisorCache = new ApiCache<any>('TripAdvisor', 60 * 60 * 1000); // 1 hour expiration
-export const googleMapsCache = new ApiCache<any>('GoogleMaps', 24 * 60 * 60 * 1000); // 24 hours expiration
-export const generalApiCache = new ApiCache<any>('GeneralAPI', 30 * 60 * 1000); // 30 minutes expiration
+import { unifiedApiCache } from '../services/unifiedApiCacheService';
 
 interface RetryOptions {
   maxRetries?: number;
@@ -19,8 +14,8 @@ interface RetryOptions {
 interface CacheOptions {
   useCache?: boolean;
   cacheKey?: string;
-  cacheDuration?: number;
-  cache?: ApiCache<any>;
+  namespace?: string;
+  cacheParams?: Record<string, any>;
 }
 
 /**
@@ -162,40 +157,32 @@ export async function fetchWithCache<T = any>(
   const {
     useCache = true,
     cacheKey = url,
-    cache = generalApiCache
+    namespace = 'general-api',
+    cacheParams
   } = cacheOptions;
 
-  // Check if we should use the cache
-  if (useCache) {
-    // Try to get from cache first
-    const cachedData = cache.get(cacheKey);
-    if (cachedData) {
-      // If we have cached data, use it
-      console.log(`[ApiCache] Cache hit for: ${cacheKey}`);
-      return cachedData as T;
-    }
-  }
-
-  // If no cache hit or caching disabled, proceed with the fetch
-  console.log(`[ApiCache] Cache miss for: ${cacheKey}`);
-  const response = await fetchWithRetry(url, options, retryOptions);
-  const data = await response.json();
-
-  // Cache the result if caching is enabled
-  if (useCache) {
-    cache.set(cacheKey, data);
-  }
-
-  return data as T;
+  // Use unified API cache with retry logic
+  return unifiedApiCache.request<T>(namespace, url, {
+    method: options.method as any || 'GET',
+    headers: options.headers as Record<string, string>,
+    body: options.body ? JSON.parse(options.body as string) : undefined,
+    signal: options.signal || undefined,
+    retryOptions,
+    cacheOptions: {
+      useCache,
+      cacheKey,
+      cacheParams
+    },
+    deduplication: { enabled: true },
+    debouncing: { enabled: false }
+  });
 }
 
 /**
  * Clear all API caches
  */
-export function clearAllApiCaches(): void {
-  tripAdvisorCache.clear();
-  googleMapsCache.clear();
-  generalApiCache.clear();
+export async function clearAllApiCaches(): Promise<void> {
+  await unifiedApiCache.clearAllCaches();
 }
 
 // In-memory request deduplication cache

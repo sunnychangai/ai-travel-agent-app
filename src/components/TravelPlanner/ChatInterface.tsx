@@ -32,20 +32,10 @@ export default function ChatInterface({
     { id: "3", text: "I'm interested in art museums" },
   ]);
 
-  // Set initial messages based on user preferences
+  // Set initial messages
   useEffect(() => {
     if (initialMessages) {
       setMessages(initialMessages);
-    } else if (userPreferences) {
-      const userName = userPreferences.name.split(' ')[0]; // Get first name
-      setMessages([
-        {
-          id: "1",
-          content: `Hi ${userName}! I'm your AI travel agent. I can help you plan your trip. Where would you like to go?`,
-          sender: "ai",
-          timestamp: new Date(),
-        },
-      ]);
     } else {
       setMessages([
         {
@@ -56,7 +46,7 @@ export default function ChatInterface({
         },
       ]);
     }
-  }, [initialMessages, userPreferences]);
+  }, [initialMessages]);
 
   const handleSendMessage = (message: string) => {
     // Add user message

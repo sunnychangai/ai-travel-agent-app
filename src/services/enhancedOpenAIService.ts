@@ -1,12 +1,285 @@
 import { OpenAI } from 'openai';
 import { RequestManager } from './openaiService';
 import * as promptTemplates from './promptTemplates';
-import { ApiCache } from '../utils/cacheUtils';
-import { withRetry, ApiError, deduplicateRequest, debounceRequest } from '../utils/apiUtils';
+import { unifiedApiCache } from './unifiedApiCacheService';
+import { withRetry, ApiError, deduplicateRequest } from '../utils/apiUtils';
 import { safeParseDate } from '../utils/dateUtils';
 import { googleMapsService } from '../services/googleMapsService';
 import { tripAdvisorService } from '../services/tripAdvisorService';
 import { performanceConfig } from '../config/performance';
+import { getMealTimeGuidance } from '../utils/culturalNorms';
+
+// Enhanced Error Types for different failure modes
+export class OpenAIServiceError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly userMessage: string,
+    public readonly isRetryable: boolean = false,
+    public readonly context?: Record<string, any>
+  ) {
+    super(message);
+    this.name = 'OpenAIServiceError';
+  }
+}
+
+export class RateLimitError extends OpenAIServiceError {
+  constructor(retryAfter?: number) {
+    super(
+      'OpenAI API rate limit exceeded',
+      'RATE_LIMIT_EXCEEDED',
+      'We\'re receiving a lot of requests right now. Please wait a moment and try again.',
+      true,
+      { retryAfter }
+    );
+  }
+}
+
+export class AuthenticationError extends OpenAIServiceError {
+  constructor() {
+    super(
+      'OpenAI API authentication failed',
+      'AUTHENTICATION_FAILED',
+      'There\'s an issue with our AI service configuration. Please try again later or contact support.',
+      false
+    );
+  }
+}
+
+export class NetworkError extends OpenAIServiceError {
+  constructor(originalError?: string) {
+    super(
+      `Network connectivity issue: ${originalError}`,
+      'NETWORK_ERROR',
+      'Network connection problem. Please check your internet connection and try again.',
+      true,
+      { originalError }
+    );
+  }
+}
+
+export class QuotaExceededError extends OpenAIServiceError {
+  constructor() {
+    super(
+      'OpenAI API quota exceeded',
+      'QUOTA_EXCEEDED',
+      'Our AI service has reached its usage limit. Please try again later.',
+      false
+    );
+  }
+}
+
+export class InvalidRequestError extends OpenAIServiceError {
+  constructor(details?: string) {
+    super(
+      `Invalid request to OpenAI API: ${details}`,
+      'INVALID_REQUEST',
+      'There was an issue with your request. Please try again with different parameters.',
+      false,
+      { details }
+    );
+  }
+}
+
+export class ServiceUnavailableError extends OpenAIServiceError {
+  constructor() {
+    super(
+      'OpenAI API service temporarily unavailable',
+      'SERVICE_UNAVAILABLE',
+      'Our AI service is temporarily unavailable. Please try again in a few minutes.',
+      true
+    );
+  }
+}
+
+export class ContentFilterError extends OpenAIServiceError {
+  constructor() {
+    super(
+      'Content filtered by OpenAI safety systems',
+      'CONTENT_FILTERED',
+      'Your request contained content that couldn\'t be processed. Please try rephrasing your request.',
+      false
+    );
+  }
+}
+
+// Circuit Breaker Pattern Implementation
+class CircuitBreaker {
+  private failureCount = 0;
+  private lastFailureTime = 0;
+  private state: 'closed' | 'open' | 'half-open' = 'closed';
+
+  constructor(
+    private readonly failureThreshold: number = 5,
+    private readonly recoveryTimeout: number = 60000, // 1 minute
+    private readonly halfOpenMaxRequests: number = 3
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.state === 'open') {
+      if (Date.now() - this.lastFailureTime > this.recoveryTimeout) {
+        this.state = 'half-open';
+        this.failureCount = 0;
+      } else {
+        throw new ServiceUnavailableError();
+      }
+    }
+
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  private onSuccess() {
+    this.failureCount = 0;
+    this.state = 'closed';
+  }
+
+  private onFailure() {
+    this.failureCount++;
+    this.lastFailureTime = Date.now();
+
+    if (this.failureCount >= this.failureThreshold) {
+      this.state = 'open';
+    }
+  }
+
+  getState() {
+    return {
+      state: this.state,
+      failureCount: this.failureCount,
+      lastFailureTime: this.lastFailureTime
+    };
+  }
+
+  reset() {
+    this.failureCount = 0;
+    this.lastFailureTime = 0;
+    this.state = 'closed';
+  }
+}
+
+// Create circuit breaker instance
+const circuitBreaker = new CircuitBreaker();
+
+// Enhanced error classification function
+function classifyOpenAIError(error: any): OpenAIServiceError {
+  // Handle abort errors first
+  if (error.name === 'AbortError') {
+    return new OpenAIServiceError(
+      'Request was aborted',
+      'REQUEST_ABORTED',
+      'Request was canceled',
+      false
+    );
+  }
+
+  // Handle OpenAI API specific errors
+  if (error.status) {
+    switch (error.status) {
+      case 401:
+        return new AuthenticationError();
+      case 429:
+        const retryAfter = error.headers?.['retry-after'] ? parseInt(error.headers['retry-after']) : undefined;
+        return new RateLimitError(retryAfter);
+      case 400:
+        return new InvalidRequestError(error.message);
+      case 403:
+        return new QuotaExceededError();
+      case 500:
+      case 502:
+      case 503:
+      case 504:
+        return new ServiceUnavailableError();
+      default:
+        return new OpenAIServiceError(
+          `OpenAI API error: ${error.message}`,
+          'API_ERROR',
+          'An unexpected error occurred with our AI service. Please try again.',
+          error.status >= 500,
+          { status: error.status }
+        );
+    }
+  }
+
+  // Handle network errors
+  if (error.message?.includes('fetch') || error.message?.includes('network') || error.code === 'ENOTFOUND') {
+    return new NetworkError(error.message);
+  }
+
+  // Handle JSON parsing errors
+  if (error.message?.includes('JSON') || error.message?.includes('parse')) {
+    return new OpenAIServiceError(
+      `Failed to parse response: ${error.message}`,
+      'PARSE_ERROR',
+      'Received an invalid response from our AI service. Please try again.',
+      true,
+      { originalError: error.message }
+    );
+  }
+
+  // Generic fallback
+  return new OpenAIServiceError(
+    error.message || 'Unknown error occurred',
+    'UNKNOWN_ERROR',
+    'An unexpected error occurred. Please try again.',
+    false,
+    { originalError: error.message }
+  );
+}
+
+// Enhanced retry configuration
+const retryConfig = {
+  maxRetries: 3,
+  baseDelay: 1000,
+  maxDelay: 10000,
+  backoffMultiplier: 2,
+  jitter: true
+};
+
+// Enhanced retry function with exponential backoff and jitter
+async function enhancedRetry<T>(
+  operation: () => Promise<T>,
+  config: Partial<typeof retryConfig> = {}
+): Promise<T> {
+  const finalConfig = { ...retryConfig, ...config };
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= finalConfig.maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      
+      const classifiedError = classifyOpenAIError(error);
+      
+      // Don't retry non-retryable errors
+      if (!classifiedError.isRetryable || attempt === finalConfig.maxRetries) {
+        throw classifiedError;
+      }
+      
+      // Calculate delay with exponential backoff and jitter
+      let delay = Math.min(
+        finalConfig.baseDelay * Math.pow(finalConfig.backoffMultiplier, attempt),
+        finalConfig.maxDelay
+      );
+      
+      if (finalConfig.jitter) {
+        delay = delay * (0.5 + Math.random() * 0.5); // Add ±50% jitter
+      }
+      
+      console.log(`[OpenAI] Retry attempt ${attempt + 1}/${finalConfig.maxRetries} after ${delay}ms delay`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw classifyOpenAIError(lastError);
+}
 
 // Initialize OpenAI client
 const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
@@ -20,41 +293,44 @@ const openai = new OpenAI({
   dangerouslyAllowBrowser: true // Note: In production, you should use a backend proxy
 });
 
-// Cache for responses using shared ApiCache utility - use performance settings
-const responseCache = new ApiCache<any>(
-  'EnhancedOpenAI', 
-  performanceConfig.cache.ttl,
-  performanceConfig.cache.maxItems,
-  performanceConfig.cache.usePersistence,
-  performanceConfig.cache.ttl * 2 // Stale TTL is double the fresh TTL
-);
-
 /**
- * Creates a standardized cache key with enhanced specificity for OpenAI requests
- * @param baseKey The base key (e.g., 'itinerary', 'attractions')
- * @param params Object containing all relevant parameters that affect the response
- * @returns A deterministic cache key string
+ * Creates standardized cache keys using unified cache service capabilities
+ * @param type The request type (e.g., 'itinerary', 'attractions')
+ * @param params Key parameters that affect the response
+ * @returns Cache key and params for unified cache service
  */
-function createEnhancedCacheKey(baseKey: string, params: Record<string, any>) {
-  // Filter out sensitive or irrelevant parameters
-  const relevantParams = { ...params };
+function createCacheKeyAndParams(type: string, params: Record<string, any>) {
+  // Clean and normalize parameters
+  const cleanParams = Object.keys(params)
+    .sort()
+    .reduce((clean, key) => {
+      const value = params[key];
+      if (value !== undefined && value !== null && value !== '') {
+        // Normalize string values
+        if (typeof value === 'string') {
+          clean[key] = value.toLowerCase().trim();
+        } else {
+          clean[key] = value;
+        }
+      }
+      return clean;
+    }, {} as Record<string, any>);
+
+  // Create semantic cache key - let unified cache handle user scoping
+  const cacheKey = `openai-${type}`;
   
-  // Don't include the full prompt in the cache key as it's too large and contains
-  // highly dynamic content; instead focus on the key parameters
-  if (relevantParams.prompt) {
-    delete relevantParams.prompt;
-  }
-  
-  return responseCache.generateKey(baseKey, relevantParams);
+  return {
+    cacheKey,
+    cacheParams: cleanParams
+  };
 }
 
 /**
- * Enhanced OpenAI service with parallel requests, batching, and specialized prompts
+ * Enhanced OpenAI service with simplified caching and request processing
  */
 export const enhancedOpenAIService = {
   /**
    * Test API key configuration and connectivity
-   * @returns Promise with test results
    */
   async testApiConfiguration(): Promise<{
     success: boolean;
@@ -104,11 +380,13 @@ export const enhancedOpenAIService = {
 
       // Test network connectivity with a simple API call
       try {
-        const response = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: 'Test' }],
-          max_tokens: 5,
-        });
+        const response = await enhancedRetry(async () => {
+          return await openai.chat.completions.create({
+            model: 'gpt-3.5-turbo',
+            messages: [{ role: 'user', content: 'Test' }],
+            max_tokens: 5,
+          });
+        }, { maxRetries: 1 }); // Only one retry for config test
 
         details.networkConnectivity = true;
         details.apiResponse = Boolean(response.choices?.[0]?.message);
@@ -121,25 +399,12 @@ export const enhancedOpenAIService = {
       } catch (apiError: any) {
         details.networkConnectivity = true; // We reached the API
         
-        if (apiError.message?.includes('rate limit')) {
-          return {
-            success: false,
-            message: 'API key is valid but rate limited. Try again later.',
-            details
-          };
-        }
+        // Use enhanced error classification
+        const classifiedError = classifyOpenAIError(apiError);
         
-        if (apiError.message?.includes('authentication') || apiError.message?.includes('API key')) {
-          return {
-            success: false,
-            message: 'API key is invalid or unauthorized',
-            details
-          };
-        }
-
         return {
           success: false,
-          message: `API error: ${apiError.message}`,
+          message: classifiedError.userMessage,
           details
         };
       }
@@ -153,10 +418,7 @@ export const enhancedOpenAIService = {
   },
 
   /**
-   * Make multiple OpenAI API calls in parallel
-   * @param requests Array of request configs
-   * @param options Options including abort signal
-   * @returns Results of parallel requests
+   * Enhanced batch request processing with error handling and partial failure support
    */
   async batchRequests<T>(
     requests: Array<{
@@ -167,86 +429,116 @@ export const enhancedOpenAIService = {
       cacheKey?: string;
       cacheParams?: Record<string, any>;
     }>,
-    options: { signal?: AbortSignal; useCache?: boolean } = {}
+    options: { 
+      signal?: AbortSignal; 
+      useCache?: boolean;
+      allowPartialFailure?: boolean;
+      failFastOnCriticalError?: boolean;
+    } = {}
   ): Promise<T[]> {
-    const { signal, useCache = performanceConfig.cache.enabled } = options;
+    const { 
+      signal, 
+      useCache = performanceConfig.cache.enabled,
+      allowPartialFailure = true,
+      failFastOnCriticalError = true
+    } = options;
     
-    // Early return for empty requests array
     if (requests.length === 0) {
       return [];
     }
     
-    // Prepare arrays to track results
-    const results: (T | null)[] = new Array(requests.length).fill(null);
+    console.log(`[OpenAI] Processing ${requests.length} requests in batch`);
     
-    // Process requests in parallel with enhanced cache handling
-    await Promise.all(requests.map(async (request, index) => {
+    // Track batch statistics
+    let successCount = 0;
+    let failureCount = 0;
+    const errors: Array<{ index: number; error: OpenAIServiceError }> = [];
+    
+    // Process requests in parallel with enhanced error handling
+    const promises = requests.map(async (request, index) => {
       try {
-        // Generate enhanced cache key with better specificity if cacheParams are provided
-        const finalCacheKey = request.cacheParams 
-          ? createEnhancedCacheKey(request.cacheKey || `request:${index}`, request.cacheParams)
-          : request.cacheKey;
+        const result = await this.processRequest(request, { signal, useCache });
+        successCount++;
+        return result;
+      } catch (error: any) {
+        failureCount++;
         
-        // Use stale-while-revalidate pattern for better performance
-        const result = await this.processRequestWithSwr(
-          request, 
-          { 
-            signal, 
-            useCache, 
-            cacheKey: finalCacheKey 
+        // Classify the error
+        const classifiedError = error instanceof OpenAIServiceError 
+          ? error 
+          : classifyOpenAIError(error);
+        
+                 // Add batch context by creating new error with combined context
+         const enhancedError = new OpenAIServiceError(
+           classifiedError.message,
+           classifiedError.code,
+           classifiedError.userMessage,
+           classifiedError.isRetryable,
+           {
+             ...classifiedError.context,
+             batchIndex: index,
+             batchSize: requests.length,
+             operation: 'batchRequests'
+           }
+         );
+        
+                 errors.push({ index, error: enhancedError });
+         
+         console.error(`[OpenAI] Batch request ${index} failed:`, {
+           error: enhancedError.message,
+           code: enhancedError.code,
+           retryable: enhancedError.isRetryable
+         });
+         
+         // Fail fast on critical errors if specified
+         if (failFastOnCriticalError && !enhancedError.isRetryable) {
+           throw enhancedError;
+         }
+         
+         // Return null for partial failure mode, throw for strict mode
+         if (allowPartialFailure) {
+           return null;
+         } else {
+           throw enhancedError;
+         }
+      }
+    });
+    
+    try {
+      const results = await Promise.all(promises);
+      
+      // Log batch statistics
+      console.log(`[OpenAI] Batch completed: ${successCount} successful, ${failureCount} failed`);
+      
+      // If we have failures in strict mode, throw an aggregate error
+      if (!allowPartialFailure && errors.length > 0) {
+        const aggregateError = new OpenAIServiceError(
+          `Batch request failed with ${errors.length} errors`,
+          'BATCH_FAILURE',
+          `Failed to process ${errors.length} out of ${requests.length} requests`,
+          errors.some(e => e.error.isRetryable),
+          {
+            errors: errors.map(e => ({ index: e.index, code: e.error.code, message: e.error.message })),
+            successCount,
+            failureCount
           }
         );
-        
-        results[index] = result;
-      } catch (error) {
-        console.error(`Error in batch request ${index}:`, error);
-        // For other errors, just log and continue
-        // This allows other requests in the batch to complete even if one fails
-        results[index] = null;
+        throw aggregateError;
       }
-    }));
-    
-    return results as T[];
-  },
-  
-  /**
-   * Process a request with stale-while-revalidate caching pattern
-   */
-  async processRequestWithSwr<T>(
-    request: {
-      prompt: string;
-      model?: string;
-      temperature?: number;
-      parseResponse?: (text: string) => T;
-      cacheKey?: string;
-    },
-    options: { 
-      signal?: AbortSignal; 
-      useCache?: boolean;
-      cacheKey?: string;
-    } = {}
-  ): Promise<T> {
-    const { signal, useCache = true, cacheKey } = options;
-    
-    // If cache is disabled or no cache key, process directly
-    if (!useCache || !cacheKey) {
-      return this.processRequest(request, { signal, useCache: false });
+      
+      return results as T[];
+    } catch (error: any) {
+      // Handle Promise.all rejection (fail-fast scenario)
+      if (error instanceof OpenAIServiceError) {
+        throw error;
+      }
+      
+      throw classifyOpenAIError(error);
     }
-    
-    // Use stale-while-revalidate pattern
-    return responseCache.getOrFetch<T>(
-      cacheKey,
-      // Fetch function to get fresh data
-      () => this.processRequest(request, { signal, useCache: false }),
-      {
-        compress: performanceConfig.cache.useCompression,
-        background: false // Only refresh in background if stale
-      }
-    );
   },
   
   /**
-   * Process a single request with caching, deduplication and debouncing
+   * Enhanced request processing with circuit breaker, retry logic, and error handling
    */
   async processRequest<T>(
     request: {
@@ -255,6 +547,7 @@ export const enhancedOpenAIService = {
       temperature?: number;
       parseResponse?: (text: string) => T;
       cacheKey?: string;
+      cacheParams?: Record<string, any>;
     },
     options: { signal?: AbortSignal; useCache?: boolean } = {}
   ): Promise<T> {
@@ -264,93 +557,119 @@ export const enhancedOpenAIService = {
       model = performanceConfig.model, 
       temperature = 0.7, 
       parseResponse, 
-      cacheKey 
+      cacheKey,
+      cacheParams
     } = request;
     
-    // Recheck cache right before making the API call
+    // Check cache first if enabled
     if (useCache && cacheKey) {
-      const cached = responseCache.get(cacheKey);
-      if (cached) {
-        return cached;
+      try {
+        const cached = await unifiedApiCache.get<T>('openai-api', cacheKey);
+        if (cached) {
+          console.log(`[OpenAI] Cache hit for: ${cacheKey}`);
+          return cached;
+        }
+      } catch (error) {
+        console.warn('[OpenAI] Cache lookup failed:', error);
       }
     }
     
-    // Create a unique request identifier for deduplication using a more efficient method
-    // Only generate it once per function call to avoid redundant string operations
-    const requestId = cacheKey || `${model}:${prompt.substring(0, 50)}:${temperature}`;
-    
-    // Debounce similar requests that happen in rapid succession
-    // This helps prevent duplicate API calls for near-identical requests
-    return debounceRequest(`openai:${model}`, () => {
-      // Deduplicate identical concurrent requests
-      return deduplicateRequest(`openai:${requestId}`, async () => {
-        // Make the API call with retry logic
-        const response = await withRetry(() => openai.chat.completions.create({
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature,
-          response_format: { type: 'json_object' },
-        }, {
-          signal,
-        }), {
-          shouldRetry: (error) => {
-            // Retry on network errors, rate limit errors, and certain OpenAI API errors
-            if (error instanceof ApiError) {
-              return (
-                error.isNetworkError || 
-                error.isRateLimitError || 
-                error.status === 502 || // Bad Gateway
-                error.status === 503 || // Service Unavailable
-                error.status === 504    // Gateway Timeout
+    // Use circuit breaker and enhanced retry for API calls
+    const makeApiCall = async (): Promise<T> => {
+      return await circuitBreaker.execute(async () => {
+        return await enhancedRetry(async () => {
+          console.log(`[OpenAI] Making API request with model: ${model}`);
+          
+          // Check for abort signal before making request
+          if (signal?.aborted) {
+            throw new Error('Request was aborted');
+          }
+          
+          try {
+            const response = await openai.chat.completions.create({
+              model,
+              messages: [{ role: 'user', content: prompt }],
+              temperature,
+              response_format: { type: 'json_object' }
+            }, { signal });
+            
+            const content = response.choices?.[0]?.message?.content;
+            if (!content) {
+              throw new OpenAIServiceError(
+                'Empty response from OpenAI API',
+                'EMPTY_RESPONSE',
+                'Received an empty response from our AI service. Please try again.',
+                true
               );
             }
             
-            // Also retry on generic OpenAI timeouts or capacity errors
-            if (error.message && (
-              error.message.includes('timeout') || 
-              error.message.includes('capacity') ||
-              error.message.includes('rate limit')
-            )) {
-              return true;
+            // Parse the response with better error handling
+            let parsedResult: any;
+            try {
+              parsedResult = JSON.parse(content);
+            } catch (parseError) {
+              if (parseResponse) {
+                try {
+                  parsedResult = parseResponse(content);
+                } catch (customParseError) {
+                  throw new OpenAIServiceError(
+                    `Custom parse function failed: ${customParseError}`,
+                    'CUSTOM_PARSE_ERROR',
+                    'Failed to process the AI response. Please try again.',
+                    true,
+                    { content: content.substring(0, 200) }
+                  );
+                }
+              } else {
+                throw new OpenAIServiceError(
+                  `Failed to parse JSON response: ${parseError}`,
+                  'JSON_PARSE_ERROR',
+                  'Received an invalid response format. Please try again.',
+                  true,
+                  { content: content.substring(0, 200) }
+                );
+              }
             }
             
-            return false;
+            // Cache the successful result
+            if (useCache && cacheKey) {
+              try {
+                await unifiedApiCache.set('openai-api', cacheKey, parsedResult);
+              } catch (cacheError) {
+                console.warn('[OpenAI] Failed to cache result:', cacheError);
+                // Don't fail the request if caching fails
+              }
+            }
+            
+            return parsedResult;
+          } catch (apiError: any) {
+            // Classify and throw appropriate error
+            throw classifyOpenAIError(apiError);
           }
         });
-        
-        // Parse the response
-        const content = response.choices[0]?.message?.content;
-        if (!content) {
-          throw new Error(`Empty response for request`);
-        }
-        
-        let parsedResult: any;
-        
-        try {
-          // Try to parse as JSON first
-          parsedResult = JSON.parse(content);
-        } catch (e) {
-          // If JSON parsing fails and we have a custom parser, use it
-          if (parseResponse) {
-            parsedResult = parseResponse(content);
-          } else {
-            // Otherwise, just use the raw text
-            parsedResult = content;
-          }
-        }
-        
-        // Cache the result
-        if (useCache && cacheKey) {
-          responseCache.set(cacheKey, parsedResult, performanceConfig.cache.useCompression);
-        }
-        
-        return parsedResult;
       });
-    });
+    };
+    
+    try {
+      return await makeApiCall();
+    } catch (error: any) {
+      // Log error details for debugging
+      console.error('[OpenAI] Request failed:', {
+        error: error.message,
+        code: error.code,
+        model,
+        promptLength: prompt.length,
+        cacheKey,
+        circuitBreakerState: circuitBreaker.getState()
+      });
+      
+      // Re-throw the classified error
+      throw error;
+    }
   },
   
   /**
-   * Generate a complete itinerary with parallel API calls
+   * Generate a complete itinerary with simplified parallel processing
    */
   async generateCompleteItinerary(
     destination: string,
@@ -367,13 +686,16 @@ export const enhancedOpenAIService = {
     },
     options: { signal?: AbortSignal } = {}
   ) {
-    // Calculate number of days with safe date parsing
+    // Calculate number of days
     const start = safeParseDate(startDate);
     const end = safeParseDate(endDate);
     const dayCount = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     
-    // Create enhanced cache keys with proper specificity
-    const baseKeyParams = {
+    // Get cultural meal time guidance for this destination
+    const mealTimeGuidance = getMealTimeGuidance(destination);
+    
+    // Create base parameters for cache keys
+    const baseParams = {
       destination,
       startDate,
       endDate,
@@ -383,68 +705,68 @@ export const enhancedOpenAIService = {
       dayCount
     };
     
-    // Step 1: Make parallel requests for attractions and restaurants
-    const [attractions, restaurants] = await this.batchRequests(
-      [
-        {
-          prompt: promptTemplates.ATTRACTION_PROMPT
-            .replace('{destination}', destination)
-            .replace('{count}', Math.min(dayCount * 3, 15).toString())
-            .replace('{interests}', interests.join(', ')),
-          temperature: 0.8,
-          cacheParams: {
-            ...baseKeyParams,
-            type: 'attractions',
-            count: Math.min(dayCount * 3, 15)
-          }
-        },
-        {
-          prompt: promptTemplates.RESTAURANT_PROMPT
-            .replace('{destination}', destination)
-            .replace('{count}', Math.min(dayCount * 2, 10).toString())
-            .replace('{preferences}', preferences.dietaryPreferences.join(', ')),
-          temperature: 0.8,
-          cacheParams: {
-            ...baseKeyParams,
-            type: 'restaurants',
-            count: Math.min(dayCount * 2, 10),
-            dietaryPreferences: preferences.dietaryPreferences.join(',')
-          }
-        },
-      ],
-      { signal: options.signal }
-    ) as [any[], any[]];
+    // Step 1: Get attractions and restaurants in parallel
+    const attractionCache = createCacheKeyAndParams('attractions', { 
+      ...baseParams, 
+      count: Math.min(dayCount * 3, 15) 
+    });
+    const restaurantCache = createCacheKeyAndParams('restaurants', { 
+      ...baseParams, 
+      count: Math.min(dayCount * 2, 10),
+      dietaryPreferences: preferences.dietaryPreferences.join(',')
+    });
     
-    // Step 2: Generate day-by-day plan in parallel - prepare all requests at once
+    const [attractions, restaurants] = await this.batchRequests([
+      {
+        prompt: promptTemplates.ATTRACTION_PROMPT
+          .replace('{destination}', destination)
+          .replace('{count}', Math.min(dayCount * 3, 15).toString())
+          .replace('{interests}', interests.join(', ')),
+        temperature: 0.8,
+        cacheKey: attractionCache.cacheKey,
+        cacheParams: attractionCache.cacheParams
+      },
+      {
+        prompt: `${mealTimeGuidance}\n\n${promptTemplates.RESTAURANT_PROMPT}`
+          .replace('{destination}', destination)
+          .replace('{count}', Math.min(dayCount * 2, 10).toString())
+          .replace('{preferences}', preferences.dietaryPreferences.join(', ')),
+        temperature: 0.8,
+        cacheKey: restaurantCache.cacheKey,
+        cacheParams: restaurantCache.cacheParams
+      }
+    ], { signal: options.signal }) as [any[], any[]];
+    
+    // Step 2: Generate daily plans in parallel
     const dayPrompts = [];
     for (let i = 0; i < dayCount; i++) {
-      // Calculate activities for this day
       const dayActivities = [
         ...attractions.slice(i * 2, i * 2 + 2),
-        restaurants[i % restaurants.length],
+        restaurants[i % restaurants.length]
       ];
       
+      const dailyCache = createCacheKeyAndParams('daily', { 
+        ...baseParams, 
+        dayNumber: i + 1,
+        transportMode: preferences.transportMode
+      });
+      
       dayPrompts.push({
-        prompt: promptTemplates.DAILY_PLAN_PROMPT
+        prompt: `${mealTimeGuidance}\n\n${promptTemplates.DAILY_PLAN_PROMPT}`
           .replace('{dayNumber}', (i + 1).toString())
           .replace('{destination}', destination)
           .replace('{activities}', JSON.stringify(dayActivities))
           .replace('{preferences}', preferences.dietaryPreferences.join(', '))
           .replace('{transportMode}', preferences.transportMode),
         temperature: 0.7,
-        cacheParams: {
-          ...baseKeyParams,
-          type: 'daily',
-          dayNumber: i + 1,
-          transportMode: preferences.transportMode
-        }
+        cacheKey: dailyCache.cacheKey,
+        cacheParams: dailyCache.cacheParams
       });
     }
     
-    // Process all day plans in parallel with improved batching
     const dailyPlans = await this.batchRequests(dayPrompts, { signal: options.signal });
     
-    // Step 3 & 4: Run balancing and personalization in parallel instead of sequentially
+    // Step 3: Create draft itinerary
     const draftItinerary = {
       destination,
       startDate,
@@ -452,35 +774,41 @@ export const enhancedOpenAIService = {
       interests,
       preferences,
       days: dailyPlans.map((plan, i) => {
-        // Create a Date object for this day by adding i days to the start date
         const currentDate = safeParseDate(startDate);
         currentDate.setDate(currentDate.getDate() + i);
         
         return {
           dayNumber: i + 1,
-          date: currentDate.toISOString().split('T')[0], // Format to YYYY-MM-DD
-          activities: (plan as any).orderedActivities || [],
+          date: currentDate.toISOString().split('T')[0],
+          activities: (plan as any).orderedActivities || []
         };
-      }),
+      })
     };
     
+    // Step 4: Balance and personalize in parallel
+    const balancedCache = createCacheKeyAndParams('balanced', { 
+      ...baseParams, 
+      draftLength: JSON.stringify(draftItinerary).length 
+    });
+    const personalizedCache = createCacheKeyAndParams('personalized', { 
+      ...baseParams,
+      travelGroup: preferences.travelGroup,
+      pace: preferences.pace
+    });
+    
     const [balancedItinerary, personalizedItinerary] = await Promise.all([
-      // Balance the itinerary
-      this.processRequestWithSwr({
+      this.processRequest({
         prompt: promptTemplates.ITINERARY_BALANCING_PROMPT
           .replace('{destination}', destination)
           .replace('{startDate}', startDate)
           .replace('{endDate}', endDate)
           .replace('{draftItinerary}', JSON.stringify(draftItinerary)),
         temperature: 0.7,
-        cacheKey: createEnhancedCacheKey('balanced', {
-          ...baseKeyParams,
-          draftHash: JSON.stringify(draftItinerary).length // Include a hash/length of the draft to make the cache more specific
-        })
+        cacheKey: balancedCache.cacheKey,
+        cacheParams: balancedCache.cacheParams
       }, { signal: options.signal }),
       
-      // Personalize the itinerary (run concurrently with balancing)
-      this.processRequestWithSwr({
+      this.processRequest({
         prompt: promptTemplates.PERSONALIZATION_PROMPT
           .replace('{destination}', destination)
           .replace('{travelStyle}', preferences.travelStyle)
@@ -490,16 +818,12 @@ export const enhancedOpenAIService = {
           .replace('{dietaryPreferences}', preferences.dietaryPreferences.join(', ')),
         model: 'gpt-4-turbo-preview',
         temperature: 0.8,
-        cacheKey: createEnhancedCacheKey('personalized', {
-          ...baseKeyParams,
-          travelGroup: preferences.travelGroup,
-          pace: preferences.pace
-        })
-      }, { signal: options.signal, useCache: false }) // Don't cache personalization
+        cacheKey: personalizedCache.cacheKey,
+        cacheParams: personalizedCache.cacheParams
+      }, { signal: options.signal, useCache: false })
     ]);
     
-    // Merge the balanced and personalized results
-    // (In practice, you'd need to implement a smarter merging algorithm)
+    // Merge results
     return {
       ...(balancedItinerary as any),
       ...(personalizedItinerary as any),
@@ -510,87 +834,87 @@ export const enhancedOpenAIService = {
   },
   
   /**
-   * Enhance descriptions for activities in an itinerary
+   * Simplified activity description enhancement
    */
   async enhanceActivityDescriptions(
     activities: Array<{ id: string; title: string; description: string }>,
     destination: string,
-    options: { signal?: AbortSignal; batchSize?: number } = {}
+    options: { signal?: AbortSignal } = {}
   ) {
-    const { batchSize = 5, signal } = options;
-    const enhancedActivities = [...activities];
+    const { signal } = options;
     
-    // Process in batches to avoid rate limiting
-    for (let i = 0; i < activities.length; i += batchSize) {
-      const batch = activities.slice(i, i + batchSize);
+    if (activities.length === 0) {
+      return activities;
+    }
+    
+    // Create enhancement requests for all activities
+    const enhancementRequests = activities.map(activity => {
+      const descriptionCache = createCacheKeyAndParams('description', {
+        destination,
+        activityId: activity.id,
+        title: activity.title
+      });
       
-      // Create prompts for this batch
-      const batchPrompts = batch.map(activity => ({
+      return {
         prompt: promptTemplates.DESCRIPTION_ENHANCEMENT_PROMPT
           .replace('{activity}', activity.title)
           .replace('{description}', activity.description)
           .replace('{destination}', destination),
         temperature: 0.8,
-        cacheParams: {
-          destination,
-          activity: activity.id,
-          title: activity.title,
-          type: 'description'
-        }
-      }));
-      
-      // Get enhanced descriptions in parallel
-      const enhancedDescriptions = await this.batchRequests(batchPrompts, { signal });
-      
-      // Update the activities with enhanced descriptions
-      for (let j = 0; j < batch.length; j++) {
-        const index = i + j;
-        if (index < enhancedActivities.length) {
-          enhancedActivities[index].description = (enhancedDescriptions[j] as string);
-        }
-      }
-    }
+        cacheKey: descriptionCache.cacheKey,
+        cacheParams: descriptionCache.cacheParams
+      };
+    });
     
-    return enhancedActivities;
+    // Process all enhancements in parallel
+    const enhancedDescriptions = await this.batchRequests(enhancementRequests, { signal });
+    
+    // Update activities with enhanced descriptions
+    return activities.map((activity, index) => ({
+      ...activity,
+      description: (enhancedDescriptions[index] as string) || activity.description
+    }));
   },
   
   /**
-   * Categorize activities in an itinerary
+   * Simplified activity categorization
    */
   async categorizeActivities(
     activities: Array<{ id: string; title: string; description: string }>,
     options: { signal?: AbortSignal } = {}
   ) {
-    // Split into batches of ~20 activities for effective categorization
-    const batches = [];
-    for (let i = 0; i < activities.length; i += 20) {
-      batches.push(activities.slice(i, i + 20));
+    if (activities.length === 0) {
+      return activities;
     }
     
-    const categorizedBatches = await Promise.all(
-      batches.map(async batch => {
-        const [categorization] = await this.batchRequests(
-          [
-            {
-              prompt: promptTemplates.ACTIVITY_CATEGORIZATION_PROMPT.replace(
-                '{activities}',
-                JSON.stringify(batch.map(a => ({ id: a.id, title: a.title, description: a.description })))
-              ),
-              temperature: 0.3, // Low temperature for more deterministic categorization
-              cacheKey: `categorization:${batch.map(a => a.id).join(',')}`,
-            },
-          ],
-          { signal: options.signal }
-        );
-        
-        return categorization;
-      })
-    );
+    // Categorize all activities in one request (or split if too large)
+    const batchSize = 20;
+    const results = [];
     
-    // Flatten and combine the results
-    const categorizations = categorizedBatches.flatMap(batch => batch);
+    for (let i = 0; i < activities.length; i += batchSize) {
+      const batch = activities.slice(i, i + batchSize);
+      const batchIds = batch.map(a => a.id).join(',');
+      
+      const categorizationCache = createCacheKeyAndParams('categorization', { 
+        batchIds,
+        batchSize: batch.length 
+      });
+      
+      const categorization = await this.processRequest({
+        prompt: promptTemplates.ACTIVITY_CATEGORIZATION_PROMPT.replace(
+          '{activities}',
+          JSON.stringify(batch.map(a => ({ id: a.id, title: a.title, description: a.description })))
+        ),
+        temperature: 0.3,
+        cacheKey: categorizationCache.cacheKey,
+        cacheParams: categorizationCache.cacheParams
+      }, { signal: options.signal });
+      
+      results.push(categorization);
+    }
     
-    // Create a map of id to categorization
+    // Flatten results and create categorization map
+    const categorizations = results.flatMap(batch => batch);
     const categorizationMap = new Map();
     for (const cat of categorizations) {
       categorizationMap.set((cat as any).id, { 
@@ -599,29 +923,140 @@ export const enhancedOpenAIService = {
       });
     }
     
-    // Apply categorizations to original activities
+    // Apply categorizations to activities
     return activities.map(activity => ({
       ...activity,
       category: categorizationMap.get(activity.id)?.category || 'Activity',
-      subcategory: categorizationMap.get(activity.id)?.subcategory || '',
+      subcategory: categorizationMap.get(activity.id)?.subcategory || ''
     }));
   },
   
   /**
+   * Get current service health status including circuit breaker state
+   */
+  getServiceHealth() {
+    const circuitState = circuitBreaker.getState();
+    
+    return {
+      circuitBreaker: {
+        state: circuitState.state,
+        failureCount: circuitState.failureCount,
+        lastFailureTime: circuitState.lastFailureTime,
+        isHealthy: circuitState.state === 'closed'
+      },
+      apiKeyConfigured: Boolean(apiKey && apiKey !== 'your_openai_api_key'),
+      recommendation: this.getHealthRecommendation(circuitState.state)
+    };
+  },
+
+  /**
+   * Reset circuit breaker (useful for admin/debug purposes)
+   */
+  resetCircuitBreaker() {
+    circuitBreaker.reset();
+    console.log('[OpenAI] Circuit breaker reset');
+  },
+
+  /**
+   * Get health recommendation based on circuit breaker state
+   */
+  getHealthRecommendation(state: string): string {
+    switch (state) {
+      case 'open':
+        return 'Service is temporarily unavailable. Please wait a moment before trying again.';
+      case 'half-open':
+        return 'Service is recovering. Limited requests are being processed.';
+      case 'closed':
+        return 'Service is operating normally.';
+      default:
+        return 'Service status unknown.';
+    }
+  },
+
+  /**
+   * Enhanced error logging with structured data
+   */
+  logError(error: OpenAIServiceError, context?: Record<string, any>) {
+    const logData = {
+      timestamp: new Date().toISOString(),
+      error: {
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        userMessage: error.userMessage,
+        isRetryable: error.isRetryable,
+        context: error.context
+      },
+      circuitBreakerState: circuitBreaker.getState(),
+      additionalContext: context
+    };
+
+    console.error('[OpenAI] Structured Error Log:', logData);
+    
+    // In a real application, you might want to send this to an error tracking service
+    // Example: errorTrackingService.logError(logData);
+  },
+
+  /**
+   * Check if an error is recoverable and suggest next steps
+   */
+  analyzeError(error: any): {
+    isRecoverable: boolean;
+    suggestedAction: string;
+    retryDelay?: number;
+    shouldResetCircuitBreaker?: boolean;
+  } {
+    const classifiedError = error instanceof OpenAIServiceError ? error : classifyOpenAIError(error);
+    
+    switch (classifiedError.code) {
+      case 'RATE_LIMIT_EXCEEDED':
+        return {
+          isRecoverable: true,
+          suggestedAction: 'Wait and retry automatically',
+          retryDelay: classifiedError.context?.retryAfter ? classifiedError.context.retryAfter * 1000 : 60000
+        };
+      
+      case 'NETWORK_ERROR':
+      case 'SERVICE_UNAVAILABLE':
+        return {
+          isRecoverable: true,
+          suggestedAction: 'Check connection and retry',
+          retryDelay: 5000
+        };
+      
+      case 'AUTHENTICATION_FAILED':
+      case 'QUOTA_EXCEEDED':
+        return {
+          isRecoverable: false,
+          suggestedAction: 'Contact support or check API configuration'
+        };
+      
+      case 'PARSE_ERROR':
+        return {
+          isRecoverable: true,
+          suggestedAction: 'Retry with different parameters',
+          retryDelay: 1000
+        };
+      
+      default:
+        return {
+          isRecoverable: classifiedError.isRetryable,
+          suggestedAction: classifiedError.isRetryable ? 'Retry operation' : 'Contact support',
+          retryDelay: classifiedError.isRetryable ? 2000 : undefined
+        };
+    }
+  },
+
+  /**
    * Cleanup resources associated with this service
    */
   cleanup() {
-    // Implement any necessary cleanup
+    circuitBreaker.reset();
+    console.log('[OpenAI] Service cleanup completed');
   },
   
   /**
-   * Generate a complete itinerary based on user input
-   * @param destination Destination for the itinerary
-   * @param startDate Start date (can be string or Date)
-   * @param endDate End date (can be string or Date)
-   * @param userPreferences User preferences for personalization
-   * @param options Additional options
-   * @returns Generated itinerary data
+   * Simplified itinerary generation
    */
   async generateItinerary(
     destination: string,
@@ -635,21 +1070,20 @@ export const enhancedOpenAIService = {
       cacheKey?: string 
     } = {}
   ) {
-    // Validate API key first
+    // Validate API key
     const currentApiKey = import.meta.env.VITE_OPENAI_API_KEY;
     if (!currentApiKey || currentApiKey === 'your_openai_api_key') {
-      throw new Error('OpenAI API key is missing or not configured. Please check your environment variables in Vercel deployment settings.');
+      throw new Error('OpenAI API key is missing or not configured. Please check your environment variables.');
     }
 
     // Format dates consistently
     const formattedStartDate = typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0];
     const formattedEndDate = typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0];
     
-    // Extract progress callback if provided
     const onProgress = userPreferences.onProgress;
     
-    // Create a more specific cache key with relevant parameters
-    const cacheParams = {
+    // Create standardized cache key - simplified approach
+    const itineraryCache = createCacheKeyAndParams('itinerary', {
       destination,
       startDate: formattedStartDate,
       endDate: formattedEndDate,
@@ -657,172 +1091,128 @@ export const enhancedOpenAIService = {
       budget: userPreferences.budget || 'mid-range',
       interests: Array.isArray(userPreferences.interests) 
         ? userPreferences.interests.map((i: any) => i.label || i).join(',')
-        : '',
-      travelGroup: userPreferences.travelGroup || 'solo',
-      generationQuality: userPreferences.generationQuality || 'standard',
-      useExternalData: options.useTripadvisor || options.useGoogleMaps || false
-    };
+        : ''
+    });
     
-    const cacheKey = options.cacheKey || createEnhancedCacheKey('itinerary', cacheParams);
+    const cacheKey = options.cacheKey || itineraryCache.cacheKey;
     
-    // Use stale-while-revalidate pattern to immediately return cached data while refreshing
-    return responseCache.getOrFetch(
-      cacheKey,
-      async () => {
-        console.log('Generating new itinerary for', destination);
-        
-        try {
-          // Create a faster, simplified version depending on preferences
-          const useComprehensiveGeneration = userPreferences.generationQuality === 'comprehensive';
-          
-          let itineraryData;
-          
-          if (useComprehensiveGeneration) {
-            // Use the more detailed but slower generation method
-            itineraryData = await this.generateCompleteItinerary(
-              destination,
-              formattedStartDate,
-              formattedEndDate,
-              userPreferences.interests || [],
-              {
-                travelStyle: userPreferences.travelStyle || 'balanced',
-                travelGroup: userPreferences.travelGroup || 'solo',
-                budget: userPreferences.budget || 'mid-range',
-                transportMode: userPreferences.transportation || 'walking',
-                dietaryPreferences: userPreferences.dietary || [],
-                pace: userPreferences.pace || 'moderate'
-              },
-              { signal: options.signal }
-            );
-          } else {
-            // Report progress if callback provided
-            if (onProgress) {
-              onProgress(30, 'Generating itinerary...');
-            }
-            
-            // Use a simpler, faster single API call approach
-            const prompt = this.createItineraryPrompt(
-              destination, 
-              formattedStartDate, 
-              formattedEndDate, 
-              userPreferences
-            );
-            
-            try {
-              const response = await openai.chat.completions.create({
-                model: 'gpt-3.5-turbo-1106',
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 0.7,
-                response_format: { type: 'json_object' },
-              }, {
-                signal: options.signal,
-              });
-              
-              if (onProgress) {
-                onProgress(60, 'Processing results...');
-              }
-              
-              const content = response.choices[0]?.message?.content;
-              if (!content) {
-                throw new Error('Failed to generate itinerary - empty response');
-              }
-              
-              try {
-                itineraryData = JSON.parse(content);
-              } catch (e) {
-                console.error('Failed to parse itinerary JSON:', e);
-                throw new Error('Failed to parse itinerary response');
-              }
-            } catch (error) {
-              // Check if this is an abort error
-              if ((error as Error).name === 'AbortError' || (error as Error).message?.includes('aborted')) {
-                console.log('Itinerary generation aborted by user.');
-                throw error; // Re-throw abort errors to be handled by caller
-              }
-              
-              // For other errors, try to provide a more helpful message
-              console.error('Error in OpenAI API call:', error);
-              throw new Error(`Failed to generate itinerary: ${(error as Error).message || 'Unknown error'}`);
-            }
-          }
-          
-          // Add a title to the itinerary if not already present
-          if (!itineraryData.title) {
-            const durationDays = Math.ceil(
-              (new Date(formattedEndDate).getTime() - new Date(formattedStartDate).getTime()) / 
-              (1000 * 60 * 60 * 24)
-            ) + 1;
-            
-            itineraryData.title = `${durationDays}-Day Trip to ${destination}`;
-          }
-          
-          // Report progress if callback provided
-          if (onProgress) {
-            onProgress(75, 'Enhancing itinerary details...');
-          }
-          
-          // Only enhance with external data if explicitly requested
-          // These external API calls are often a significant performance bottleneck
-          const shouldUseExternalData = 
-            (options.useTripadvisor || options.useGoogleMaps) && 
-            userPreferences.useExternalData;
-          
-          if (shouldUseExternalData) {
-            itineraryData = await this.enhanceItineraryWithExternalData(
-              itineraryData,
-              {
-                useTripadvisor: !!options.useTripadvisor,
-                useGoogleMaps: !!options.useGoogleMaps,
-                destination
-              }
-            );
-          }
-          
-          // Final progress update
-          if (onProgress) {
-            onProgress(90, 'Finalizing your itinerary...');
-          }
-          
-          return itineraryData;
-        } catch (error: any) {
-          console.error('Error generating complete itinerary:', error);
-          
-          // Calculate dayCount for error context
-          const dayCount = Math.ceil(
-            (new Date(formattedEndDate).getTime() - new Date(formattedStartDate).getTime()) / 
-            (1000 * 60 * 60 * 24)
-          ) + 1;
-          
-          // Better error context for debugging
-          const errorContext = {
-            destination,
-            startDate: formattedStartDate,
-            endDate: formattedEndDate,
-            interests: userPreferences.interests || [],
-            preferences: userPreferences,
-            dayCount
-          };
-          
-          console.error('Error context:', errorContext);
-          
-          // Check if it's an API error and provide helpful message
-          if ((error as Error).message?.includes('rate limit')) {
-            throw new Error('OpenAI API rate limit exceeded. Please wait a moment and try again.');
-          }
-          
-          if ((error as Error).message?.includes('network') || (error as Error).message?.includes('timeout')) {
-            throw new Error('Network error occurred. Please check your connection and try again.');
-          }
-          
-          // Generic error with context
-          throw new Error(`Failed to generate itinerary: ${(error as Error).message || 'Unknown error'}`);
-        }
-      },
-      {
-        compress: performanceConfig.cache.useCompression,
-        background: true // Always refresh in background after a period
+    // Check cache first
+    try {
+      const cached = await unifiedApiCache.get('openai-api', cacheKey);
+      if (cached) {
+        console.log(`[OpenAI] Cache hit for itinerary: ${cacheKey}`);
+        if (onProgress) onProgress(100, 'Loading your cached itinerary...');
+        return cached;
       }
-    );
+    } catch (error) {
+      console.warn('[OpenAI] Cache lookup failed, generating new itinerary:', error);
+    }
+
+    // **SIMPLIFIED GENERATION PROCESS**
+    console.log(`[OpenAI] Generating new itinerary for ${destination}`);
+    
+    try {
+      // Single progress update for start
+      if (onProgress) onProgress(20, 'Creating your personalized itinerary...');
+      
+      // **SINGLE API CALL APPROACH** - Generate complete itinerary in one request
+      const prompt = this.createItineraryPrompt(
+        destination, 
+        formattedStartDate, 
+        formattedEndDate, 
+        userPreferences
+      );
+      
+      const response = await circuitBreaker.execute(async () => {
+        return await enhancedRetry(async () => {
+          return await openai.chat.completions.create({
+            model: 'gpt-3.5-turbo-1106',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            response_format: { type: 'json_object' },
+          }, { signal: options.signal });
+        });
+      });
+      
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('Failed to generate itinerary - empty response');
+      }
+      
+      let itineraryData = JSON.parse(content);
+      
+      // Basic validation and cleanup
+      if (!itineraryData.destination) {
+        itineraryData.destination = destination;
+      }
+      
+      if (!itineraryData.title) {
+        const durationDays = Math.ceil(
+          (new Date(formattedEndDate).getTime() - new Date(formattedStartDate).getTime()) / 
+          (1000 * 60 * 60 * 24)
+        ) + 1;
+        itineraryData.title = `${durationDays}-Day Trip to ${destination}`;
+      }
+      
+      // Progress update for main generation complete
+      if (onProgress) onProgress(80, 'Finalizing your itinerary...');
+      
+      // **OPTIONAL LIGHTWEIGHT ENHANCEMENT** - Only if explicitly requested
+      if ((options.useTripadvisor || options.useGoogleMaps) && userPreferences.useExternalData) {
+        try {
+          itineraryData = await this.enhanceItineraryLightweight(
+            itineraryData,
+            {
+              useTripadvisor: !!options.useTripadvisor,
+              useGoogleMaps: !!options.useGoogleMaps,
+              destination
+            }
+          );
+        } catch (enhancementError) {
+          // Don't fail the entire generation if enhancement fails
+          console.warn('External data enhancement failed, using base itinerary:', enhancementError);
+        }
+      }
+      
+      // Final progress update
+      if (onProgress) onProgress(100, 'Your itinerary is ready!');
+      
+      // Cache the result
+      try {
+        await unifiedApiCache.set('openai-api', cacheKey, itineraryData);
+        console.log(`[OpenAI] Cached itinerary result for: ${cacheKey}`);
+      } catch (error) {
+        console.warn('[OpenAI] Failed to cache itinerary result:', error);
+      }
+      
+      return itineraryData;
+      
+    } catch (error: any) {
+      console.error('Error generating itinerary:', error);
+      
+      // **SIMPLIFIED ERROR HANDLING**
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        throw new OpenAIServiceError(
+          'Itinerary generation was canceled',
+          'REQUEST_ABORTED',
+          'Itinerary generation was canceled',
+          false
+        );
+      }
+      
+      // Re-throw classified errors, or create simple error for others
+      if (error instanceof OpenAIServiceError) {
+        throw error;
+      }
+      
+      throw new OpenAIServiceError(
+        error.message || 'Failed to generate itinerary',
+        'GENERATION_FAILED',
+        'Failed to generate your itinerary. Please try again.',
+        true,
+        { destination, operation: 'generateItinerary' }
+      );
+    }
   },
   
   /**
@@ -870,6 +1260,9 @@ export const enhancedOpenAIService = {
       ? dietaryPreferences.map((p: any) => p.label || p).join(', ')
       : 'no specific dietary restrictions';
     
+    // Get cultural meal time guidance for this destination
+    const mealTimeGuidance = getMealTimeGuidance(destination);
+    
     // Create the structured prompt
     return `
 Generate a detailed ${tripDuration}-day travel itinerary for ${destination} from ${formattedStartDate} to ${formattedEndDate}.
@@ -882,12 +1275,14 @@ TRAVELER PROFILE:
 - Dietary preferences: ${dietaryText}
 - Pace preference: ${pace}
 
+${mealTimeGuidance}
+
 REQUIREMENTS:
 1. Create a day-by-day itinerary with 3-5 activities per day including meals.
 2. Each day should start around 8-9 AM and end around 9-10 PM unless specified otherwise.
 3. Include a mix of popular attractions and hidden gems based on the interests.
 4. Schedule activities at realistic times with appropriate breaks and travel time between locations.
-5. For meals, recommend specific restaurants that match the budget and dietary preferences.
+5. For meals, recommend specific restaurants that match the budget and dietary preferences. STRICTLY follow the meal time guidelines above.
 6. Include exact addresses for all locations.
 7. Add brief descriptions (2-3 sentences) for each activity.
 8. Categorize activities as "food", "sightseeing", "cultural", "relaxation", or "active".
@@ -926,9 +1321,9 @@ The response MUST be valid JSON without markdown formatting or code blocks.
   },
   
   /**
-   * Enhance itinerary with external data from Google Maps and TripAdvisor
+   * Simplified lightweight external data enhancement - optional and fast
    */
-  async enhanceItineraryWithExternalData(
+  async enhanceItineraryLightweight(
     itineraryData: any,
     options: {
       useTripadvisor?: boolean;
@@ -936,132 +1331,66 @@ The response MUST be valid JSON without markdown formatting or code blocks.
       destination: string;
     }
   ) {
+    if (!itineraryData.days || itineraryData.days.length === 0) {
+      return itineraryData;
+    }
+    
     const enhancedItinerary = { ...itineraryData };
     
-    // Extract all activities from all days
-    const allActivities = enhancedItinerary.days.flatMap((day: any) => 
-      day.activities.map((activity: any) => ({
-        ...activity,
-        dayNumber: day.dayNumber
-      }))
+    // Extract only restaurant activities for lightweight enhancement
+    const restaurantActivities = enhancedItinerary.days.flatMap((day: any) => 
+      day.activities.filter((activity: any) => 
+        activity.type === 'food' || 
+        activity.name?.toLowerCase().includes('restaurant') ||
+        activity.name?.toLowerCase().includes('dinner') ||
+        activity.name?.toLowerCase().includes('lunch') ||
+        activity.name?.toLowerCase().includes('breakfast')
+      )
     );
     
-    // Skip if no activities
-    if (allActivities.length === 0) {
+    // Only enhance a maximum of 3 restaurants to keep it fast
+    const topRestaurants = restaurantActivities.slice(0, 3);
+    
+    if (topRestaurants.length === 0) {
       return enhancedItinerary;
     }
     
-    // Use a Map to track activities by ID for updating later
-    const activitiesById = new Map();
-    allActivities.forEach((activity: any) => {
-      // Generate an ID if none exists
-      const id = activity.id || `activity-${Math.random().toString(36).substring(2, 10)}`;
-      activity.id = id;
-      activitiesById.set(id, activity);
+    console.log(`[OpenAI] Lightweight enhancement for ${topRestaurants.length} key restaurants`);
+    
+    // **SIMPLIFIED ENHANCEMENT** - Only for key restaurants, with timeout
+    const enhancementPromises = topRestaurants.map(async (restaurant: any) => {
+      try {
+        // Quick Google Maps lookup with short timeout
+        if (options.useGoogleMaps) {
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 2000)
+          );
+          
+          const mapsPromise = googleMapsService.getPlaceDetails(restaurant.name);
+          
+          const details = await Promise.race([mapsPromise, timeoutPromise]);
+          if (details) {
+            restaurant.location = details.formatted_address || restaurant.location;
+            restaurant.rating = details.rating || restaurant.rating;
+          }
+        }
+      } catch (error) {
+        // Silently fail enhancement - don't log unless debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.debug(`Enhancement failed for ${restaurant.name}:`, error);
+        }
+      }
     });
     
-    // Prepare external data enhancement operations - run all in parallel
-    const enhancementPromises: Promise<any>[] = [];
-    
-    if (options.useGoogleMaps) {
-      // Get Google Maps data for all activities in parallel
-      enhancementPromises.push(
-        Promise.all(
-          allActivities.map((activity: any) => 
-            deduplicateRequest(
-              `googlemaps:${options.destination}:${activity.title}`,
-              () => googleMapsService.getPlaceDetails(activity.title)
-                .then(details => {
-                  if (details) {
-                    // Update the activity with Google Maps data
-                    const activityToUpdate = activitiesById.get(activity.id);
-                    if (activityToUpdate) {
-                      activityToUpdate.location = details.formatted_address || activityToUpdate.location;
-                      activityToUpdate.rating = details.rating || activityToUpdate.rating;
-                      activityToUpdate.mapUrl = details.url || activityToUpdate.mapUrl;
-                      activityToUpdate.photos = details.photos || activityToUpdate.photos;
-                    }
-                  }
-                })
-                .catch(error => {
-                  console.error(`Error getting Google Maps data for ${activity.title}:`, error);
-                  // Continue with other activities even if one fails
-                })
-            )
-          )
-        )
-      );
+    // Wait for all enhancements with overall timeout
+    try {
+      await Promise.race([
+        Promise.all(enhancementPromises),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Enhancement timeout')), 5000))
+      ]);
+    } catch (error) {
+      console.debug('Some enhancements timed out, using base itinerary');
     }
-    
-    if (options.useTripadvisor) {
-      // Get TripAdvisor data for all activities in parallel
-      enhancementPromises.push(
-        Promise.all(
-          allActivities.map((activity: any) => 
-            deduplicateRequest(
-              `tripadvisor:${options.destination}:${activity.title}`,
-              () => tripAdvisorService.getLocationDetails(activity.title)
-                .then((details: any) => {
-                  if (details) {
-                    // Update the activity with TripAdvisor data
-                    const activityToUpdate = activitiesById.get(activity.id);
-                    if (activityToUpdate) {
-                      activityToUpdate.tripAdvisorRating = details.rating || activityToUpdate.tripAdvisorRating;
-                      activityToUpdate.reviewCount = details.num_reviews || activityToUpdate.reviewCount;
-                      activityToUpdate.tripAdvisorUrl = details.web_url || activityToUpdate.tripAdvisorUrl;
-                      activityToUpdate.price = details.price_level || activityToUpdate.price;
-                      activityToUpdate.category = details.category?.name || activityToUpdate.category;
-                    }
-                  }
-                })
-                .catch((error: any) => {
-                  console.error(`Error getting TripAdvisor data for ${activity.title}:`, error);
-                  // Continue with other activities even if one fails
-                })
-            )
-          )
-        )
-      );
-    }
-    
-    // Process activity descriptions in optimized batches
-    const enhanceDescriptionPromises = [];
-    const batchSize = performanceConfig.itineraryGeneration.batchSize;
-    
-    for (let i = 0; i < allActivities.length; i += batchSize) {
-      const batch = allActivities.slice(i, i + batchSize);
-      
-      enhanceDescriptionPromises.push(
-        this.enhanceActivityDescriptions(batch, options.destination)
-          .then(enhancedActivities => {
-            // Update the descriptions in our activity map
-            enhancedActivities.forEach(enhancedActivity => {
-              const activityToUpdate = activitiesById.get(enhancedActivity.id);
-              if (activityToUpdate) {
-                activityToUpdate.description = enhancedActivity.description;
-              }
-            });
-          })
-          .catch(error => {
-            console.error('Error enhancing activity descriptions:', error);
-            // Continue with other activities even if one batch fails
-          })
-      );
-    }
-    
-    // Add the description enhancement promises to our array
-    enhancementPromises.push(Promise.all(enhanceDescriptionPromises));
-    
-    // Wait for all enhancement operations to complete
-    await Promise.all(enhancementPromises);
-    
-    // Update the days in the itinerary with enhanced activities
-    enhancedItinerary.days.forEach((day: any) => {
-      day.activities = day.activities.map((activity: any) => {
-        const enhancedActivity = activitiesById.get(activity.id || `activity-${Math.random().toString(36).substring(2, 10)}`);
-        return enhancedActivity || activity;
-      });
-    });
     
     return enhancedItinerary;
   },
@@ -1089,6 +1418,23 @@ IMPORTANT NOTES ABOUT DATES:
 - If specific dates are mentioned but without a year, assume the year is 2025.
 - If dates are mentioned with years before 2025, update them to use 2025 instead.
 - All dates must be returned in YYYY-MM-DD format, with YYYY being at least 2025.
+
+CRITICAL DATE RANGE PARSING RULES:
+- When parsing date ranges like "august 2-4", "may 15-18", or "december 1-3":
+  * The first number is the START date (e.g., "august 2-4" means START on August 2nd)
+  * The second number is the END date (e.g., "august 2-4" means END on August 4th)
+  * "august 2-4" should be parsed as startDate: "2025-08-02", endDate: "2025-08-04"
+  * "may 15-18" should be parsed as startDate: "2025-05-15", endDate: "2025-05-18"
+  * "december 1-3" should be parsed as startDate: "2025-12-01", endDate: "2025-12-03"
+- When parsing phrases like "from august 2 to 4" or "from august 2-4":
+  * This means START on August 2nd and END on August 4th
+  * NOT August 1st to August 3rd
+- Always interpret the numbers in date ranges as literal calendar dates, not as day counts or durations
+
+EXAMPLES:
+- "plan a trip to chicago from august 2-4" → startDate: "2025-08-02", endDate: "2025-08-04"
+- "visit paris may 15-18" → startDate: "2025-05-15", endDate: "2025-05-18"
+- "go to tokyo from december 1 to 3" → startDate: "2025-12-01", endDate: "2025-12-03"
 
 Return ONLY a JSON object with these fields:
 {

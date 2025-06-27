@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import UserPreferencesService from '../services/userPreferencesService';
+import { unifiedUserPreferencesService } from '../services/unifiedUserPreferencesService';
 import { UserPreferences } from '../components/TravelPlanner/EnhancedItineraryCreator';
 
 /**
@@ -18,13 +18,13 @@ export function useUserPreferences() {
         setError(null);
         
         // Start with sync version for immediate UI response
-        const syncPrefs = UserPreferencesService.getPreferencesSync();
+        const syncPrefs = unifiedUserPreferencesService.getPreferencesSync();
         if (syncPrefs) {
           setPreferences(syncPrefs);
         }
         
         // Then load the authoritative version (from Supabase if available)
-        const prefs = await UserPreferencesService.loadPreferences();
+        const prefs = await unifiedUserPreferencesService.loadPreferences();
         if (prefs) {
           setPreferences(prefs);
         }
@@ -46,7 +46,7 @@ export function useUserPreferences() {
     try {
       setIsLoading(true);
       setError(null);
-      await UserPreferencesService.savePreferences(newPreferences);
+      await unifiedUserPreferencesService.savePreferences(newPreferences);
       setPreferences(newPreferences);
       return true;
     } catch (err) {
@@ -65,7 +65,7 @@ export function useUserPreferences() {
     try {
       setIsLoading(true);
       setError(null);
-      const updated = await UserPreferencesService.updatePreferences(partialPreferences);
+      const updated = await unifiedUserPreferencesService.updatePreferences(partialPreferences);
       if (updated) {
         setPreferences(updated);
         return true;
@@ -87,7 +87,7 @@ export function useUserPreferences() {
     try {
       setIsLoading(true);
       setError(null);
-      await UserPreferencesService.clearPreferences();
+              await unifiedUserPreferencesService.clearPreferences();
       setPreferences(null);
       return true;
     } catch (err) {
@@ -105,8 +105,8 @@ export function useUserPreferences() {
   const syncAfterLogin = useCallback(async () => {
     try {
       setIsLoading(true);
-      await UserPreferencesService.syncAfterLogin();
-      const prefs = await UserPreferencesService.loadPreferences();
+      await unifiedUserPreferencesService.syncAfterLogin();
+      const prefs = await unifiedUserPreferencesService.loadPreferences();
       if (prefs) {
         setPreferences(prefs);
       }

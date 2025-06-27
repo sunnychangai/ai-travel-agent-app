@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authService } from '../services/authService';
+import { cacheUtils } from '../services/cacheManager';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 // User type based on Supabase user
@@ -26,6 +27,9 @@ const AuthContext = createContext<AuthContextType>({
   signUp: async () => ({ success: false, message: 'Not implemented' }),
   signOut: async () => {},
 });
+
+// Export the context for direct use
+export { AuthContext };
 
 // Hook to use the auth context
 export const useAuth = () => useContext(AuthContext);
@@ -57,10 +61,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         const session = await authService.getSession();
         if (session?.user) {
-          setUser(mapSupabaseUser(session.user));
+          const mappedUser = mapSupabaseUser(session.user);
+          setUser(mappedUser);
+          
+          // Initialize cache manager with current user
+          cacheUtils.setUser(mappedUser.id);
+          console.log('🔐 AuthContext: Initialized cache with user', mappedUser.id);
+        } else {
+          // Ensure cache manager knows there's no user
+          cacheUtils.setUser(null);
+          console.log('🔐 AuthContext: Initialized cache with no user');
         }
       } catch (error) {
         console.error('Error getting initial session:', error);
+        // Ensure cache manager is initialized even on error
+        cacheUtils.setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -73,9 +88,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.log('Auth state changed:', event);
       
       if (session?.user) {
-        setUser(mapSupabaseUser(session.user));
+        const mappedUser = mapSupabaseUser(session.user);
+        setUser(mappedUser);
+        
+        // Set current user in cache manager for user-scoped caching
+        cacheUtils.setUser(mappedUser.id);
+        console.log('🔐 AuthContext: Set cache user to', mappedUser.id);
       } else {
         setUser(null);
+        
+        // Clear user from cache manager (this will trigger cache invalidation)
+        cacheUtils.setUser(null);
+        console.log('🔐 AuthContext: Cleared cache user');
       }
       
       setIsLoading(false);
@@ -143,10 +167,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const signOut = async (): Promise<void> => {
     try {
       setIsLoading(true);
+      
+      // Clear user from cache manager before signing out (ensures cleanup)
+      cacheUtils.setUser(null);
+      console.log('🔐 AuthContext: Explicitly cleared cache on sign out');
+      
       await authService.signOut();
       setUser(null);
     } catch (error) {
       console.error('Error signing out:', error);
+      // Still clear cache even if sign out fails
+      cacheUtils.setUser(null);
     } finally {
       setIsLoading(false);
     }

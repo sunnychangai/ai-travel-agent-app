@@ -9,7 +9,6 @@ import Home from './components/home';
 import Landing from './pages/Landing';
 import Auth from './pages/Auth';
 import AppWithOnboarding from './pages/AppWithOnboarding';
-import MyTripsPage from './pages/MyTrips';
 import { Toaster } from './components/ui/toaster';
 import { ItineraryProvider } from './contexts/ItineraryContext';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -33,7 +32,7 @@ function RootErrorBoundary() {
   );
 }
 
-// Define router using the new API
+// Define router using the new API with future flags to remove v7 warnings
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -54,10 +53,6 @@ const router = createBrowserRouter([
             element: <Auth />,
           },
           {
-            path: "/my-trips",
-            element: <MyTripsPage />,
-          },
-          {
             path: "*",
             element: <Navigate to="/" replace />,
           }
@@ -65,7 +60,15 @@ const router = createBrowserRouter([
       }
     ]
   }
-]);
+], {
+  future: {
+    v7_relativeSplatPath: true,
+    v7_fetcherPersist: true,
+    v7_normalizeFormMethod: true,
+    v7_partialHydration: true,
+    v7_skipActionErrorRevalidation: true,
+  },
+});
 
 function App() {
   return <RouterProvider router={router} />;

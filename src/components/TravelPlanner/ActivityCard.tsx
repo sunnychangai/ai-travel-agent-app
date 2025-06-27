@@ -24,68 +24,58 @@ interface ActivityCardProps {
   className?: string;
 }
 
-// Wrap the component with React.memo to prevent unnecessary re-renders
+// OPTIMIZED: Simpler component without excessive memoization
 const ActivityCard = React.memo<ActivityCardProps>(({
   activity,
   onEdit = () => {},
   onDelete = () => {},
   className
 }) => {
-  // Use the utility function for ID generation
-  const id = useMemo(() => getActivityIdSafely(activity.id), [activity.id]);
+  // OPTIMIZED: Simple function calls don't need memoization
+  const id = getActivityIdSafely(activity.id);
   
-  // Memoize derived values
-  const rawStartTime = useMemo(() => activity.time?.split(" - ")[0] || "", [activity.time]);
-  // Force recalculation of startTime to ensure conversion happens
-  const startTime = convertToAMPM(rawStartTime);
-  const typeStyles = useMemo(() => getActivityTypeStyles(activity.type), [activity.type]);
-  const title = useMemo(() => activity.title, [activity.title]);
-  const description = useMemo(() => activity.description, [activity.description]);
-  const location = useMemo(() => activity.location, [activity.location]);
-  const mapUrl = useMemo(() => 
-    location ? `https://maps.google.com/?q=${encodeURIComponent(location)}` : "",
-    [location]
-  );
+  // OPTIMIZED: Only memoize expensive time calculations
+  const startTime = useMemo(() => {
+    if (!activity.time) return "";
+    const rawStartTime = activity.time.split(" - ")[0];
+    return convertToAMPM(rawStartTime);
+  }, [activity.time]);
+  
+  // OPTIMIZED: Direct property access and function calls - no memoization needed
+  const typeStyles = getActivityTypeStyles(activity.type);
+  const { title, description, location } = activity;
+  const mapUrl = location ? `https://maps.google.com/?q=${encodeURIComponent(location)}` : "";
   
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   
-  // Memoize handler functions to prevent unnecessary re-renders
-  const handleEditClick = useCallback(() => {
-    onEdit(id);
-  }, [onEdit, id]);
-  
-  const handleDelete = useCallback(() => {
+  // OPTIMIZED: Simple event handlers don't need useCallback unless they cause performance issues
+  const handleEditClick = () => onEdit(id);
+  const handleDelete = () => {
     console.log('Delete button clicked for activity:', id);
     setShowDeleteDialog(true);
-  }, [id]);
-  
-  const confirmDelete = useCallback(() => {
+  };
+  const confirmDelete = () => {
     console.log('Delete confirmed for activity:', id);
     onDelete(id);
     setShowDeleteDialog(false);
-  }, [onDelete, id]);
+  };
+  const handleCloseDialog = (open: boolean) => setShowDeleteDialog(open);
   
-  const handleCloseDialog = useCallback((open: boolean) => {
-    setShowDeleteDialog(open);
-  }, []);
-  
-  // Memoize computed class names
-  const cardClassName = useMemo(() => 
-    cn("w-full overflow-hidden border border-slate-200 rounded-xl shadow-sm bg-white hover:shadow-md transition-shadow", className),
-    [className]
+  // OPTIMIZED: Simple string concatenation doesn't need memoization
+  const cardClassName = cn(
+    "w-full overflow-hidden border border-slate-200 rounded-xl shadow-sm bg-white hover:shadow-md transition-shadow", 
+    className
   );
   
-  const typeTagClassName = useMemo(() => 
-    cn("text-xs px-2.5 py-1 rounded-xl font-medium", 
-      typeStyles.bgColor,
-      typeStyles.textColor,
-      "border border-slate-200"
-    ),
-    [typeStyles]
+  const typeTagClassName = cn(
+    "text-xs px-2.5 py-1 rounded-xl font-medium", 
+    typeStyles.bgColor,
+    typeStyles.textColor,
+    "border border-slate-200"
   );
   
-  // Memoize the render of activity header
-  const renderActivityHeader = useMemo(() => (
+  // OPTIMIZED: Remove unnecessary memoization - React is efficient at re-rendering JSX
+  const renderActivityHeader = (
     <div className="px-5 pt-4 pb-2 flex items-center justify-between">
       <div className="flex items-center gap-2">
         <span className={typeTagClassName}>
@@ -119,10 +109,9 @@ const ActivityCard = React.memo<ActivityCardProps>(({
         </Button>
       </div>
     </div>
-  ), [typeTagClassName, startTime, handleEditClick, handleDelete, activity.type]);
+  );
   
-  // Memoize the render of activity content
-  const renderActivityContent = useMemo(() => (
+  const renderActivityContent = (
     <div className="px-5 pb-4 flex-1 flex flex-col">
       <h3 className="text-xl font-semibold text-slate-900 mb-1 leading-tight">
         {title}
@@ -146,10 +135,9 @@ const ActivityCard = React.memo<ActivityCardProps>(({
         </div>
       )}
     </div>
-  ), [title, description, location, mapUrl]);
+  );
   
-  // Memoize the alert dialog component
-  const deleteDialog = useMemo(() => (
+  const deleteDialog = (
     <AlertDialog open={showDeleteDialog} onOpenChange={handleCloseDialog}>
       <AlertDialogContent className="max-w-md rounded-lg">
         <AlertDialogHeader>
@@ -169,7 +157,7 @@ const ActivityCard = React.memo<ActivityCardProps>(({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  ), [showDeleteDialog, handleCloseDialog, title, confirmDelete]);
+  );
   
   return (
     <>

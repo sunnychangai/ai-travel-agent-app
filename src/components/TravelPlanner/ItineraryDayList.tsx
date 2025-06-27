@@ -81,7 +81,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
   }, [days, daysWithActivities]);
 
   // Use virtualized list for "all" mode with many items
-  const useVirtualization = useMemo(() => 
+  const shouldUseVirtualization = useMemo(() => 
     flattenedItems && flattenedItems.length > 20,
     [flattenedItems]
   );
@@ -91,12 +91,13 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
     virtualItems,
     totalHeight,
     scrollRef,
-    handleScroll
+    handleScroll,
+    isVirtualized
   } = useVirtualizedList(flattenedItems || [], {
     itemHeight: ACTIVITY_CARD_HEIGHT,
     overscan: 5,
     // Disable virtualization when not needed
-    disabled: !useVirtualization
+    disabled: !shouldUseVirtualization
   });
 
   // Memoize handler functions
@@ -196,7 +197,7 @@ const ItineraryDayList: React.FC<ItineraryDayListProps> = React.memo(({
   }, [handleEditActivity, handleDeleteActivity]);
 
   // Render using virtualization for "all" view with many items
-  if (useVirtualization && virtualItems) {
+  if (isVirtualized && virtualItems.length > 0) {
     return (
       <div
         ref={scrollRef}

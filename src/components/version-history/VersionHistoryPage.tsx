@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
-import { Clock, Package, Bug, Wrench, Sparkles } from 'lucide-react';
+import { Clock, Package, Bug, Wrench, Sparkles, Target, Settings, Database } from 'lucide-react';
 import { versionHistoryService, VersionEntry } from '../../services/versionHistoryService';
 
 const VersionHistoryPage: React.FC = () => {
@@ -123,6 +123,13 @@ const VersionHistoryPage: React.FC = () => {
             
             <CardContent className="space-y-6">
               {renderSection(
+                'Major Architecture Overhaul',
+                version.architectureOverhaul,
+                <Target className="h-4 w-4 text-purple-600" />,
+                'text-purple-700'
+              )}
+
+              {renderSection(
                 'New Features',
                 version.features,
                 <Sparkles className="h-4 w-4 text-green-600" />,
@@ -141,6 +148,20 @@ const VersionHistoryPage: React.FC = () => {
                 version.improvements,
                 <Wrench className="h-4 w-4 text-blue-600" />,
                 'text-blue-700'
+              )}
+
+              {renderSection(
+                'Technical Debt Reduction',
+                version.technicalDebtReduction,
+                <Settings className="h-4 w-4 text-orange-600" />,
+                'text-orange-700'
+              )}
+
+              {renderSection(
+                'System Architecture',
+                version.systemArchitecture,
+                <Database className="h-4 w-4 text-teal-600" />,
+                'text-teal-700'
               )}
             </CardContent>
             

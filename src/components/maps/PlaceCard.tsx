@@ -77,7 +77,7 @@ export const PlaceCard: React.FC<PlaceCardProps> = ({ place, onSelect }) => {
         {place.opening_hours && (
           <div className="flex items-center text-sm mb-2">
             <Clock size={16} className="mr-1" />
-            <span>{place.opening_hours.open_now ? 'Open now' : 'Closed'}</span>
+            <span>{place.opening_hours.isOpen ? 'Open now' : 'Closed'}</span>
           </div>
         )}
         

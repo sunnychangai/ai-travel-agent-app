@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { memoryMonitor } from '../utils/memoryMonitor';
 
 interface VirtualizedListOptions {
   itemHeight: number | ((index: number, item: any) => number);
@@ -43,27 +44,39 @@ export function useVirtualizedList<T>(
   const itemsRef = useRef<Map<number, number>>(new Map());
   const resizeObserver = useRef<ResizeObserver | null>(null);
   
-  // Get the height for a specific item
+  // OPTIMIZED: Simplified height calculation without excessive caching
   const getItemHeight = useCallback((index: number, item: T): number => {
     if (typeof itemHeight === 'function') {
-      // Check if we have a cached measurement
-      const cachedHeight = itemsRef.current.get(index);
-      if (cachedHeight) {
-        return cachedHeight;
+      // Only cache if we have many items (> 500) to avoid unnecessary memory usage
+      if (items.length > 500) {
+        const cachedHeight = itemsRef.current.get(index);
+        if (cachedHeight) {
+          return cachedHeight;
+        }
+        const calculatedHeight = itemHeight(index, item);
+        itemsRef.current.set(index, calculatedHeight);
+        return calculatedHeight;
+      } else {
+        // For smaller lists, just calculate directly
+        return itemHeight(index, item);
       }
-      // Calculate and cache the height
-      const calculatedHeight = itemHeight(index, item);
-      itemsRef.current.set(index, calculatedHeight);
-      return calculatedHeight;
     }
     
-    // Fixed height for all items
     return itemHeight;
-  }, [itemHeight]);
+  }, [itemHeight, items.length]); // Include items.length in deps
 
-  // Calculate item positions with dynamic heights
+  // OPTIMIZED: Only calculate positions for variable height items
   const itemPositions = useMemo(() => {
-    if (!items.length) return [];
+    // Skip position calculations for fixed height items - it's unnecessary
+    if (typeof itemHeight === 'number' || !items.length) {
+      return [];
+    }
+
+    // Only calculate positions if we have a reasonable number of items
+    // For very large lists, this becomes expensive
+    if (items.length > 5000) {
+      console.warn('⚠️ Large virtualized list detected. Consider pagination or simpler height calculation.');
+    }
 
     const positions: { top: number; height: number; bottom: number }[] = [];
     let currentTop = 0;
@@ -79,7 +92,7 @@ export function useVirtualizedList<T>(
     }
     
     return positions;
-  }, [items, getItemHeight]);
+  }, [items, getItemHeight, itemHeight]); // Simpler dependency array
 
   // Calculate which items should be rendered based on scroll position
   const {
@@ -186,36 +199,16 @@ export function useVirtualizedList<T>(
     return { virtualItems, startIndex, endIndex, totalHeight };
   }, [items, itemHeight, scrollTop, overscan, itemPositions]);
 
-  // Handle scroll events - use debounce for better performance
+  // OPTIMIZED: Simplified scroll handling without complex memoization
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const scrollTop = e.currentTarget.scrollTop;
-    // Skip tiny updates to reduce rerenders (only update if scrolled more than 2px)
-    if (Math.abs(scrollTop - scrollTop) > 2) {
-      setScrollTop(scrollTop);
-    }
-  }, []);
-
-  // Create a memoized version to reduce rerenders
-  const memoizedHandleScroll = useMemo(() => {
-    let timeoutId: number | null = null;
+    const newScrollTop = e.currentTarget.scrollTop;
     
-    return (e: React.UIEvent<HTMLDivElement>) => {
-      const scrollTop = e.currentTarget.scrollTop;
-      
-      // Always update immediately for fast scrolling
-      setScrollTop(scrollTop);
-      
-      // But debounce additional updates
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-      
-      timeoutId = window.setTimeout(() => {
-        setScrollTop(e.currentTarget.scrollTop);
-        timeoutId = null;
-      }, 50);
-    };
-  }, []);
+    // Simple debouncing - only update if scrolled more than 5px or after timeout
+    const diff = Math.abs(newScrollTop - scrollTop);
+    if (diff > 5) {
+      setScrollTop(newScrollTop);
+    }
+  }, [scrollTop]);
 
   // Scroll to a specific item
   const scrollToIndex = useCallback((index: number) => {
@@ -288,15 +281,17 @@ export function useVirtualizedList<T>(
     }
   }, [measureItemsInDom]);
 
+  // OPTIMIZED: Return simplified interface
   return {
-    virtualItems: disabled ? null : virtualItems,
+    virtualItems: disabled ? [] : virtualItems,
     totalHeight: disabled ? 0 : totalHeight,
     startIndex: disabled ? 0 : startIndex,
     endIndex: disabled ? 0 : endIndex,
-    scrollRef: disabled ? null : scrollRef,
-    handleScroll: disabled ? null : memoizedHandleScroll,
-    scrollToIndex: disabled ? () => {} : scrollToIndex,
-    measureElement: disabled ? () => {} : measureElement
+    scrollRef,
+    handleScroll: disabled ? undefined : handleScroll,
+    scrollToIndex: disabled ? undefined : scrollToIndex,
+    measureElement: disabled ? undefined : measureElement,
+    isVirtualized: !disabled
   };
 }
 

@@ -1,11 +1,11 @@
-import { memoizedSort, calculationCache } from './memoizationUtils';
+import { memoizedSort } from './memoizationUtils';
 
 /**
  * Converts a time string (in 12-hour format) to minutes for comparison
  * @param timeString Time string in format "HH:MM AM/PM" or "HH:MM AM/PM - HH:MM AM/PM", or numeric minutes as string
  * @returns Total minutes from midnight
  */
-export const timeToMinutes = calculationCache.memoize((timeString: string): number => {
+export const timeToMinutes = (timeString: string): number => {
   if (!timeString) return 0;
   
   // Check if it's already a numeric string (representing minutes)
@@ -52,7 +52,7 @@ export const timeToMinutes = calculationCache.memoize((timeString: string): numb
   // If we can't parse it, return 0
   console.warn(`Could not parse time format: ${timeString}`);
   return 0;
-});
+};
 
 /**
  * Sorts an array of activities by their start time
@@ -72,7 +72,7 @@ export const sortActivitiesByTime = <T extends { time?: string }>(activities: T[
  * @param timeStr Time string in "HH:MM AM/PM" format
  * @returns Time string in "HH:MM" 24-hour format
  */
-export const convertTo24Hour = calculationCache.memoize((timeStr: string): string => {
+export const convertTo24Hour = (timeStr: string): string => {
   if (!timeStr) return '';
   
   // If already in 24-hour format (no AM/PM), return as is
@@ -93,7 +93,7 @@ export const convertTo24Hour = calculationCache.memoize((timeStr: string): strin
   }
   
   return `${hoursNum.toString().padStart(2, '0')}:${minutes}`;
-});
+};
 
 /**
  * Converts a time string from 24-hour format to 12-hour format (with AM/PM)
@@ -118,9 +118,9 @@ export const convertToAMPM = (timeStr: string): string => {
   // Handle standard HH:MM format
   const parts = timeStr.split(':');
   if (parts.length !== 2) {
-    // If it's not in expected format, return empty string
+    // If it's not in expected format, return the original string or empty
     console.warn(`[convertToAMPM] Invalid time format: ${timeStr}`);
-    return '';
+    return timeStr; // Return original instead of empty to preserve user input
   }
   
   const [hours, minutes] = parts;
@@ -128,7 +128,7 @@ export const convertToAMPM = (timeStr: string): string => {
   
   if (isNaN(hoursNum)) {
     console.warn(`[convertToAMPM] Invalid hours in time: ${timeStr}`);
-    return '';
+    return timeStr; // Return original instead of empty
   }
   
   let period = hoursNum >= 12 ? 'PM' : 'AM';
@@ -148,7 +148,7 @@ export const convertToAMPM = (timeStr: string): string => {
  * @param endTime Optional end time in any format
  * @returns Formatted time range string
  */
-export const formatTimeRange = calculationCache.memoize((startTime: string, endTime?: string): string => {
+export const formatTimeRange = (startTime: string, endTime?: string): string => {
   if (!startTime) return '';
   
   // If no end time, just format the start time
@@ -171,14 +171,14 @@ export const formatTimeRange = calculationCache.memoize((startTime: string, endT
     : convertToAMPM(endTime);
   
   return `${formattedStart} - ${formattedEnd}`;
-});
+};
 
 /**
  * Parses a time string and returns various formatted versions
  * @param timeString Time string in any format
  * @returns Object with different formats of the time
  */
-export const parseTimeString = calculationCache.memoize((timeString: string): any => {
+export const parseTimeString = (timeString: string): any => {
   if (!timeString) return { 
     original: '',
     hour24: '',
@@ -218,7 +218,7 @@ export const parseTimeString = calculationCache.memoize((timeString: string): an
     hour12,
     minutes
   };
-});
+};
 
 /**
  * Converts minutes since midnight to a formatted time string
