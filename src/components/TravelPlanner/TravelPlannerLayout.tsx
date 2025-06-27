@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChatAgent } from "../chat/ChatAgent";
 import ItinerarySidebar from "./ItinerarySidebar";
+import FeedbackPage from "../feedback/FeedbackPage";
 import { cn } from "../../lib/utils";
 import {
   ResizableHandle,
@@ -13,7 +14,7 @@ import { Activity, ItineraryDay, SuggestionItem, Message } from "../../types";
 import { useToast } from "../../components/ui/use-toast";
 import { generateItineraryTitle } from "../../utils/itineraryUtils";
 import TravelPlannerErrorBoundary from "./TravelPlannerErrorBoundary";
-import { MessageCircle, Calendar } from "lucide-react";
+import { MessageCircle, Calendar, MessageSquare } from "lucide-react";
 
 interface TravelPlannerLayoutProps {
   className?: string;
@@ -241,11 +242,19 @@ export default function TravelPlannerLayout({
                 />
               </TravelPlannerErrorBoundary>
             </div>
+
+            {/* Feedback page */}
+            <div className={cn(
+              "absolute inset-0 bg-white",
+              activeTab === "feedback" ? "block" : "hidden"
+            )}>
+              <FeedbackPage />
+            </div>
           </div>
           
           {/* Fixed bottom tab navigation */}
           <div className="fixed bottom-0 left-0 right-0 border-t bg-white z-50">
-            <TabsList className="grid w-full grid-cols-2 h-16 bg-white rounded-none">
+            <TabsList className="grid w-full grid-cols-3 h-16 bg-white rounded-none">
               <TabsTrigger 
                 value="chat" 
                 className="flex flex-col items-center justify-center gap-1 h-full data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600"
@@ -255,16 +264,23 @@ export default function TravelPlannerLayout({
               </TabsTrigger>
               <TabsTrigger 
                 value="itinerary" 
-                className="flex flex-col items-center justify-center gap-1 h-full data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 relative"
+                className="flex flex-col items-center justify-center gap-1 h-full data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600"
               >
-                <Calendar className="h-5 w-5" />
+                <div className="relative">
+                  <Calendar className="h-5 w-5" />
+                  {/* Notification indicator - positioned relative to calendar icon */}
+                  {hasNewItineraryUpdate && (
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></div>
+                  )}
+                </div>
                 <span className="text-xs font-medium">Itinerary</span>
-                {/* Notification indicator */}
-                {hasNewItineraryUpdate && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
-                    <div className="w-2 h-2 bg-white rounded-full"></div>
-                  </div>
-                )}
+              </TabsTrigger>
+              <TabsTrigger 
+                value="feedback" 
+                className="flex flex-col items-center justify-center gap-1 h-full data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600"
+              >
+                <MessageSquare className="h-5 w-5" />
+                <span className="text-xs font-medium">Feedback</span>
               </TabsTrigger>
             </TabsList>
           </div>
