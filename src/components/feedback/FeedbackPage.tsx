@@ -227,7 +227,7 @@ export default function FeedbackPage({ onClose }: FeedbackPageProps) {
           </Card>
 
           {/* Submit Button */}
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-3 pt-4 pb-20 md:pb-4">
             <Button
               type="submit"
               disabled={isSubmitting || !formData.feedbackType || !formData.message}
