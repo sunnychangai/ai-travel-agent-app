@@ -252,9 +252,49 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
     // For authenticated users, try to load their most recent itinerary from Supabase
     // But only if we don't already have data loaded
     if (itineraryDays.length === 0 && !currentItineraryId) {
-      // Don't auto-load for now to prevent conflicts
-      // Users can manually load their itineraries from the My Trips page
-      console.log('User signed in, but not auto-loading itinerary to prevent conflicts');
+      const loadMostRecentItinerary = async () => {
+        try {
+          console.log('User signed in, attempting to load most recent itinerary');
+          
+          // Get user's itineraries
+          const userItineraries = await databaseService.getUserItineraries(user.id);
+          
+          if (userItineraries.length > 0) {
+            // Sort by most recent and load the first one
+            const sortedItineraries = userItineraries.sort((a, b) => 
+              new Date(b.created_at || b.createdAt || 0).getTime() - 
+              new Date(a.created_at || a.createdAt || 0).getTime()
+            );
+            
+            const mostRecentItinerary = sortedItineraries[0];
+            console.log('Loading most recent itinerary:', mostRecentItinerary.name || mostRecentItinerary.title);
+            
+            // Load the itinerary directly without using the loadItinerary function to avoid circular dependency
+            const itinerary = mostRecentItinerary;
+            const days = itinerary.days || [];
+            const title = itinerary.name || itinerary.title || 'My Itinerary';
+            
+            setItineraryDays(days);
+            setCurrentItineraryId(itinerary.id);
+            setCurrentItineraryTitle(title);
+            
+            // Update localStorage
+            setStorageItem(STORAGE_KEYS.ITINERARY_DAYS, days);
+            setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_ID, itinerary.id);
+            setStorageItem(STORAGE_KEYS.CURRENT_ITINERARY_TITLE, title);
+            
+            console.log('Successfully loaded most recent itinerary for user');
+          } else {
+            console.log('No saved itineraries found for user');
+          }
+        } catch (error) {
+          console.error('Error loading most recent itinerary for user:', error);
+          // Don't throw error - just log it as this is a convenience feature
+        }
+      };
+      
+      // Add small delay to ensure all initialization is complete
+      setTimeout(loadMostRecentItinerary, 500);
     }
   }, [user, itineraryDays.length, currentItineraryId]);
 

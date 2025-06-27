@@ -1,7 +1,13 @@
 import { useCallback } from 'react';
 import { useAgentItinerary } from '../../hooks/useAgentItinerary';
 import { useItinerary } from '../../contexts/ItineraryContext';
+import { useUserPreferences } from '../../contexts/UserPreferencesContext';
 import { performanceConfig } from '../../config/performance';
+import { intentClassificationService } from '../../services/intentClassificationService';
+import { promptTemplateService } from '../../services/promptTemplateService';
+import { ConversationContextService } from '../../services/conversationContextService';
+import { ChatIntent } from '../../services/intentClassificationService';
+import { openaiService } from '../../services/openaiService';
 
 type ChatMessageHandlerProps = {
   onDestinationDetected?: (destination: string) => void;
@@ -25,11 +31,10 @@ type ChatMessageHandlerProps = {
       cancelText?: string;
     }
   ) => Promise<void>;
-  createConversationResponse: (message: string, hasItinerary: boolean) => string;
 };
 
 /**
- * Hook that contains message handling logic
+ * Hook that contains message handling logic with intent recognition
  */
 export function useChatMessageHandler({
   onDestinationDetected,
@@ -43,15 +48,12 @@ export function useChatMessageHandler({
   setErrorMessage,
   showConfirmation,
   showSaveOrReplaceDialog,
-  createConversationResponse
 }: ChatMessageHandlerProps) {
   const {
     isGenerating,
     isUpdating,
     generateItinerary,
     updateItinerary,
-    detectItineraryRequest,
-    detectUpdateRequest,
     shouldConfirmReplacement,
     updateUserPreferencesFromConversation,
     hasPreviousItinerary,
@@ -59,307 +61,221 @@ export function useChatMessageHandler({
   } = useAgentItinerary();
   
   const { itineraryDays, saveItinerary } = useItinerary();
+  const { preferences, updatePreferences } = useUserPreferences();
   
-  // Generate and display an itinerary - with optimized dependency array
-  const generateAndDisplayItinerary = useCallback(async (params: any) => {
+  // Initialize conversation context service
+  const conversationContext = new ConversationContextService();
+
+  // Generate and display an itinerary
+  const handleItineraryRequest = useCallback(async (message: string, parameters: any) => {
     try {
-      // Calculate end date if not provided but duration is
-      let startDate = params.startDate;
-      let endDate = params.endDate;
-      
-      if (!endDate && params.duration && startDate) {
-        const start = new Date(startDate);
-        const end = new Date(start);
-        end.setDate(start.getDate() + parseInt(params.duration) - 1);
-        endDate = end.toISOString().split('T')[0];
-      }
-      
-      // If we still don't have dates, use defaults
-      if (!startDate) {
-        const now = new Date();
-        startDate = now.toISOString().split('T')[0];
-      }
-      
-      if (!endDate) {
-        const start = new Date(startDate);
-        const end = new Date(start);
-        end.setDate(start.getDate() + 2); // Default 3-day trip
-        endDate = end.toISOString().split('T')[0];
-      }
-      
-      // Set generation quality based on performance config
-      if (params && !params.generationQuality) {
-        params.generationQuality = performanceConfig.itineraryGeneration.mode;
-        params.useExternalData = performanceConfig.itineraryGeneration.useExternalData;
-      }
-      
-      // Generate the itinerary
-      const result = await generateItinerary(
-        params.destination,
-        startDate,
-        endDate,
-        { ...(params.preferences || {}) }
-      );
-      
-      if (result.success) {
-        // Add completion message
-        addAIMessage(`I've created your itinerary for ${params.destination}! You can see it in the right panel. Feel free to ask me to make any changes.`);
-        
-        // Update suggestions to be more relevant for itinerary updates
-        const destination = params.destination || '';
-        updateSuggestionsForDestination(destination);
-      } else {
-        throw new Error(result.message);
-      }
-    } catch (err: any) {
-      console.error('Error generating itinerary:', err);
-      addAIMessage(`I'm sorry, I couldn't create the itinerary. ${err.message || 'Please try again with more details.'}`);
-    }
-  }, [
-    addAIMessage, 
-    generateItinerary, 
-    updateSuggestionsForDestination,
-    performanceConfig.itineraryGeneration.mode,
-    performanceConfig.itineraryGeneration.useExternalData
-  ]);
-  
-  // Handle itinerary generation requests
-  const handleItineraryRequest = useCallback(async (message: string, params: any) => {
-    try {
-      // Format dates correctly with the appropriate year
-      const formatDateWithYear = (dateStr: string | undefined) => {
-        if (!dateStr) return 'the dates you mentioned';
-        
-        // Replace any year before 2025 with 2025
-        const dateObj = new Date(dateStr);
-        const year = dateObj.getFullYear();
-        if (year < 2025) {
-          const month = dateObj.getMonth();
-          const day = dateObj.getDate();
-          const newDate = new Date(2025, month, day);
-          return newDate.toISOString().split('T')[0];
-        }
-        return dateStr;
-      };
-      
-      // Format dates with correct year for display
-      const displayStartDate = formatDateWithYear(params.startDate);
-      
-      // First send an acknowledgment message
-      addAIMessage(`I'll create an itinerary for ${params.destination} from ${displayStartDate}. This will take a moment...`);
-      
-      // Update the current destination
-      if (params.destination) {
-        setCurrentDestination(params.destination);
-      }
-      
-      // Check if there's an existing itinerary that would be replaced
-      if (itineraryDays.length > 0 && shouldConfirmReplacement(
-        params.destination,
-        params.startDate || new Date(),
-        params.endDate || new Date()
-      )) {
-        // Ask for confirmation with option to save current itinerary
+      if (shouldConfirmReplacement()) {
         await showSaveOrReplaceDialog(
-          'Replace existing itinerary?',
-          `You already have an itinerary. Creating a new one for ${params.destination} will replace your current itinerary. Do you want to continue?`,
+          'Save Current Itinerary?',
+          'You have an existing itinerary. Would you like to save it before creating a new one?',
           async () => {
-            // User chose to continue and replace
-            await generateAndDisplayItinerary(params);
+            await generateItinerary(parameters);
           },
           async () => {
-            // User chose to save current first
-            try {
-              const savedId = await saveItinerary('My Saved Trip');
-              if (savedId) {
-                addAIMessage('I\'ve saved your current itinerary. Now creating your new one...');
-                // Continue with generating the new itinerary
-                await generateAndDisplayItinerary(params);
-              } else {
-                addAIMessage('I couldn\'t save your current itinerary. Please try again.');
-              }
-            } catch (error) {
-              console.error('Error saving current itinerary:', error);
-              addAIMessage('I encountered an error saving your current itinerary. Please try again.');
-            }
-          },
-          {
-            continueText: "Replace",
-            saveCurrentText: "Save Current & Continue",
-            cancelText: "Cancel"
+            await saveItinerary();
+            await generateItinerary(parameters);
           }
         );
       } else {
-        // No existing itinerary or no confirmation needed
-        await generateAndDisplayItinerary(params);
+        await generateItinerary(parameters);
       }
     } catch (err: any) {
       console.error('Error generating itinerary:', err);
-      addAIMessage(`I'm sorry, I couldn't create an itinerary for ${params.destination}. ${err.message || 'Please try again with more details.'}`);
+      setErrorMessage(err.message || 'Error generating itinerary');
+      addAIMessage('I encountered an error while generating your itinerary. Please try again.');
     }
-  }, [
-    addAIMessage,
-    setCurrentDestination,
-    generateItinerary,
-    shouldConfirmReplacement,
-    showSaveOrReplaceDialog,
-    generateAndDisplayItinerary,
-    saveItinerary,
-    itineraryDays.length
-  ]);
-  
-  // Handle itinerary update requests
+  }, [generateItinerary, shouldConfirmReplacement, showSaveOrReplaceDialog, saveItinerary, setErrorMessage, addAIMessage]);
+
+  // Handle itinerary updates
   const handleItineraryUpdate = useCallback(async (message: string, requestType: string, details: any) => {
     try {
-      // First send an acknowledgment message
-      addAIMessage(`I'll update your itinerary as requested. One moment...`);
-      
-      // Process the update
-      const result = await updateItinerary(message);
-      
-      if (result.success) {
-        // Add completion message
-        let completionMessage: string;
-        
-        switch (requestType) {
-          case 'change_time':
-            completionMessage = `I've updated the time for the ${details.activity || 'activity'} as requested. Check the itinerary panel to see the changes.`;
-            break;
-          case 'add_activity':
-            completionMessage = `I've added the new activity to your itinerary. You can see it in the right panel.`;
-            break;
-          case 'remove_activity':
-            completionMessage = `I've removed the ${details.activityToRemove || 'activity'} from your itinerary as requested.`;
-            break;
-          default:
-            completionMessage = `I've updated your itinerary as requested. Check the right panel to see the changes.`;
-        }
-        
-        addAIMessage(completionMessage);
-      } else {
-        throw new Error(result.message);
-      }
+      await updateItinerary(requestType, details);
+      addAIMessage("I've updated your itinerary with the requested changes. Please review them in the itinerary view.");
     } catch (err: any) {
       console.error('Error updating itinerary:', err);
-      addAIMessage(`I'm sorry, I couldn't update your itinerary. ${err.message || 'Please try again with more details.'}`);
+      setErrorMessage(err.message || 'Error updating itinerary');
+      addAIMessage('I encountered an error while updating your itinerary. Please try again.');
     }
-  }, [addAIMessage, updateItinerary]);
+  }, [updateItinerary, addAIMessage, setErrorMessage]);
 
-  // Handle regular conversation messages
-  const handleConversationMessage = useCallback(async (message: string) => {
+  // Handle recommendations
+  const handleRecommendations = useCallback(async (message: string, parameters: any) => {
     try {
-      // Check if we have an itinerary
-      const hasItinerary = itineraryDays.length > 0;
+      const systemPrompt = promptTemplateService.getSystemPrompt(
+        ChatIntent.GET_RECOMMENDATIONS,
+        {
+          userPreferences: preferences,
+          currentDestination: parameters.location || conversationContext.getContext().currentDestination
+        }
+      );
+
+      const userPrompt = promptTemplateService.getUserPrompt(
+        ChatIntent.GET_RECOMMENDATIONS,
+        parameters,
+        {
+          userPreferences: preferences,
+          currentDestination: parameters.location || conversationContext.getContext().currentDestination
+        }
+      );
+
+      const response = await openaiService.generateChatCompletion([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]);
+
+      const aiResponse = response.choices[0].message.content;
+      addAIMessage(aiResponse);
       
-      // Get a response based on the message content and context
-      const responseContent = createConversationResponse(message, hasItinerary);
-      
-      // Add the response to the messages
-      addAIMessage(responseContent);
-      
-      // Update suggestions if needed
-      const destination = detectDestination(message);
-      if (!hasItinerary && destination) {
-        // Use the current destination to generate suggestions
-        updateSuggestionsForDestination(destination);
-      }
+      // Track the recommendations in context
+      conversationContext.addConversationTurn('assistant', aiResponse, ChatIntent.GET_RECOMMENDATIONS, parameters);
     } catch (err: any) {
-      console.error('Error processing conversation message:', err);
-      addAIMessage(`I'm sorry, I encountered an error. ${err.message || 'Please try again.'}`);
+      console.error('Error getting recommendations:', err);
+      setErrorMessage(err.message || 'Error getting recommendations');
+      addAIMessage('I encountered an error while getting recommendations. Please try again.');
     }
-  }, [
-    addAIMessage, 
-    createConversationResponse, 
-    detectDestination, 
-    updateSuggestionsForDestination,
-    itineraryDays.length
-  ]);
-  
-  // Handle restoring the previous itinerary
-  const handleRestorePreviousItinerary = useCallback(async () => {
-    // Add user message
-    addUserMessage('Restore my previous itinerary');
-    
-    // Set typing indicator
-    startTyping();
-    
-    // Small delay to simulate thinking
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Restore the previous itinerary
-    const success = restorePreviousItinerary();
-    
-    // Add AI response
-    addAIMessage(success 
-      ? "I've restored your previous itinerary. You can see it in the sidebar." 
-      : "I couldn't find a previous itinerary to restore. Let's create a new one!");
-    
-    stopTyping();
-    
-    // Update suggestions based on the current state
-    if (success) {
-      updateSuggestionsForDestination('Your destination');
+  }, [preferences, addAIMessage, setErrorMessage]);
+
+  // Handle questions
+  const handleQuestions = useCallback(async (message: string, parameters: any) => {
+    try {
+      const systemPrompt = promptTemplateService.getSystemPrompt(
+        ChatIntent.ASK_QUESTIONS,
+        {
+          userPreferences: preferences,
+          currentDestination: conversationContext.getContext().currentDestination
+        }
+      );
+
+      const userPrompt = promptTemplateService.getUserPrompt(
+        ChatIntent.ASK_QUESTIONS,
+        parameters,
+        {
+          userPreferences: preferences,
+          currentDestination: conversationContext.getContext().currentDestination
+        }
+      );
+
+      const response = await openaiService.generateChatCompletion([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]);
+
+      const aiResponse = response.choices[0].message.content;
+      addAIMessage(aiResponse);
+      
+      // Track the question in context
+      conversationContext.addConversationTurn('assistant', aiResponse, ChatIntent.ASK_QUESTIONS, parameters);
+    } catch (err: any) {
+      console.error('Error answering question:', err);
+      setErrorMessage(err.message || 'Error answering question');
+      addAIMessage('I encountered an error while answering your question. Please try again.');
     }
-  }, [
-    addUserMessage, 
-    startTyping, 
-    restorePreviousItinerary, 
-    addAIMessage, 
-    stopTyping,
-    updateSuggestionsForDestination
-  ]);
-  
-  // Handle user sending a message with debounce protection
+  }, [preferences, addAIMessage, setErrorMessage]);
+
+  // Handle general chat
+  const handleGeneralChat = useCallback(async (message: string, parameters: any) => {
+    try {
+      const systemPrompt = promptTemplateService.getSystemPrompt(
+        ChatIntent.GENERAL_CHAT,
+        {
+          userPreferences: preferences,
+          currentDestination: conversationContext.getContext().currentDestination
+        }
+      );
+
+      const userPrompt = promptTemplateService.getUserPrompt(
+        ChatIntent.GENERAL_CHAT,
+        parameters,
+        {
+          userPreferences: preferences,
+          currentDestination: conversationContext.getContext().currentDestination
+        }
+      );
+
+      const response = await openaiService.generateChatCompletion([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]);
+
+      const aiResponse = response.choices[0].message.content;
+      addAIMessage(aiResponse);
+      
+      // Track the conversation in context
+      conversationContext.addConversationTurn('assistant', aiResponse, ChatIntent.GENERAL_CHAT, parameters);
+    } catch (err: any) {
+      console.error('Error in general chat:', err);
+      setErrorMessage(err.message || 'Error processing message');
+      addAIMessage('I encountered an error while processing your message. Please try again.');
+    }
+  }, [preferences, addAIMessage, setErrorMessage]);
+
+  // Handle user sending a message with intent recognition
   const handleSendMessage = useCallback(async (message: string) => {
     if (!message.trim()) return;
 
     // Add the user message to the chat
     addUserMessage(message);
-    
-    // Only show typing indicator if enabled in performance config
     startTyping();
     
     try {
       // Extract any destination mentioned in the message
       const destination = detectDestination(message, onDestinationDetected);
       
-      // Try to extract preferences from the message
-      await updateUserPreferencesFromConversation(message);
+      // Classify the message intent
+      const classification = await intentClassificationService.classifyIntent(message, {
+        hasExistingItinerary: itineraryDays.length > 0,
+        currentDestination: destination || conversationContext.getContext().currentDestination
+      });
+
+      // Track the user message in context
+      conversationContext.addConversationTurn('user', message, classification.intent, classification.parameters);
       
-      // Check if this is an itinerary generation request
-      const { isItineraryRequest, extractedParams, isPreviousItineraryRequest } = await detectItineraryRequest(message);
-      
-      // Handle previous itinerary request
-      if (isPreviousItineraryRequest) {
-        return handleRestorePreviousItinerary();
+      // Update user preferences if any are mentioned
+      if (classification.parameters) {
+        await updateUserPreferencesFromConversation(message);
       }
-      
-      if (isItineraryRequest) {
-        // Update the destination if found in the extracted parameters
-        if (extractedParams.destination) {
-          setCurrentDestination(extractedParams.destination);
-        }
-        
-        // Handle itinerary generation
-        return await handleItineraryRequest(message, extractedParams);
+
+      // Handle the message based on intent
+      switch (classification.intent) {
+        case ChatIntent.NEW_ITINERARY:
+          await handleItineraryRequest(message, classification.parameters);
+          break;
+
+        case ChatIntent.MODIFY_EXISTING:
+          await handleItineraryUpdate(
+            message,
+            classification.parameters.modificationDetails?.type || 'modify',
+            classification.parameters.modificationDetails
+          );
+          break;
+
+        case ChatIntent.GET_RECOMMENDATIONS:
+          await handleRecommendations(message, classification.parameters);
+          break;
+
+        case ChatIntent.ASK_QUESTIONS:
+          await handleQuestions(message, classification.parameters);
+          break;
+
+        case ChatIntent.GENERAL_CHAT:
+        default:
+          await handleGeneralChat(message, classification.parameters);
+          break;
       }
-      
-      // Check if this is an itinerary update request
-      const { isUpdateRequest, requestType, details } = await detectUpdateRequest(message);
-      
-      if (isUpdateRequest) {
-        // Handle itinerary update
-        return await handleItineraryUpdate(message, requestType, details);
+
+      // Update suggestions if needed
+      if (destination) {
+        updateSuggestionsForDestination(destination);
       }
-      
-      // Otherwise, process as a regular conversation message
-      await handleConversationMessage(message);
     } catch (err: any) {
       console.error('Error processing message:', err);
       setErrorMessage(err.message || 'An error occurred while processing your message.');
-      
-      // Add error message to chat
-      addAIMessage(`I'm sorry, I encountered an error: ${err.message || 'Unknown error'}`);
+      addAIMessage("I'm sorry, I encountered an error: " + (err.message || 'Unknown error'));
     } finally {
       stopTyping();
     }
@@ -368,24 +284,46 @@ export function useChatMessageHandler({
     startTyping,
     detectDestination,
     onDestinationDetected,
+    itineraryDays.length,
     updateUserPreferencesFromConversation,
-    detectItineraryRequest,
-    handleRestorePreviousItinerary,
-    setCurrentDestination,
     handleItineraryRequest,
-    detectUpdateRequest,
     handleItineraryUpdate,
-    handleConversationMessage,
+    handleRecommendations,
+    handleQuestions,
+    handleGeneralChat,
+    updateSuggestionsForDestination,
     setErrorMessage,
     addAIMessage,
     stopTyping
   ]);
 
+  // Handle restoring previous itinerary
+  const handleRestorePreviousItinerary = useCallback(async () => {
+    try {
+      if (hasPreviousItinerary) {
+        await showConfirmation(
+          'Restore Previous Itinerary?',
+          'This will replace your current itinerary. Would you like to continue?',
+          async () => {
+            await restorePreviousItinerary();
+            addAIMessage("I've restored your previous itinerary. You can view it in the itinerary panel.");
+          }
+        );
+      }
+    } catch (err: any) {
+      console.error('Error restoring previous itinerary:', err);
+      setErrorMessage(err.message || 'Error restoring previous itinerary');
+      addAIMessage('I encountered an error while restoring your previous itinerary. Please try again.');
+    }
+  }, [hasPreviousItinerary, showConfirmation, restorePreviousItinerary, addAIMessage, setErrorMessage]);
+
   return {
     handleSendMessage,
     handleItineraryRequest,
     handleItineraryUpdate,
-    handleConversationMessage,
+    handleRecommendations,
+    handleQuestions,
+    handleGeneralChat,
     handleRestorePreviousItinerary,
     isGenerating,
     isUpdating

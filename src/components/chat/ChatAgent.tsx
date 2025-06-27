@@ -7,6 +7,7 @@ import { ChatAgentProps } from '../../types/chat';
 import ConfirmationDialog from './ConfirmationDialog';
 import ChatContainer from './ChatContainer';
 import ChatInputArea from '../TravelPlanner/ChatInputArea';
+import { ConversationContextService } from '../../services/conversationContextService';
 
 // Custom hooks
 import useMessages from '../../hooks/useMessages';
@@ -51,7 +52,6 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
     error,
     setErrorMessage,
     detectDestination,
-    createConversationResponse
   } = useConversation();
   
   const {
@@ -62,12 +62,17 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
     setDialogState
   } = useConfirmDialog();
 
-  // Message handling logic
+  // Initialize conversation context service
+  const conversationContext = useMemo(() => new ConversationContextService(), []);
+
+  // Message handling logic with intent recognition
   const {
     handleSendMessage,
     handleItineraryRequest,
     handleItineraryUpdate,
-    handleConversationMessage,
+    handleRecommendations,
+    handleQuestions,
+    handleGeneralChat,
     handleRestorePreviousItinerary,
     isGenerating,
     isUpdating
@@ -83,13 +88,16 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
     setErrorMessage,
     showConfirmation,
     showSaveOrReplaceDialog,
-    createConversationResponse
   });
 
   // Initialize with welcome message
   useEffect(() => {
-    initializeWithWelcome("Hi there! I'm your AI travel agent. I can help you plan your trip. Where would you like to go?");
-  }, [initializeWithWelcome]);
+    const welcomeMessage = "Hi there! I'm your AI travel agent. I can help you plan your trip. Where would you like to go?";
+    initializeWithWelcome(welcomeMessage);
+    
+    // Add the welcome message to conversation context
+    conversationContext.addConversationTurn('assistant', welcomeMessage);
+  }, [initializeWithWelcome, conversationContext]);
 
   // Compute input disabled state
   const isInputDisabled = useMemo(() => {
