@@ -69,20 +69,24 @@ export function useChatMessageHandler({
   // Generate and display an itinerary
   const handleItineraryRequest = useCallback(async (message: string, parameters: any) => {
     try {
-      if (shouldConfirmReplacement()) {
+      const destination = parameters.destination || 'Unknown';
+      const startDate = parameters.dates?.start || new Date().toISOString().split('T')[0];
+      const endDate = parameters.dates?.end || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      if (shouldConfirmReplacement(destination, startDate, endDate)) {
         await showSaveOrReplaceDialog(
           'Save Current Itinerary?',
           'You have an existing itinerary. Would you like to save it before creating a new one?',
           async () => {
-            await generateItinerary(parameters);
+            await generateItinerary(destination, startDate, endDate, parameters);
           },
           async () => {
-            await saveItinerary();
-            await generateItinerary(parameters);
+            await saveItinerary('My Previous Itinerary');
+            await generateItinerary(destination, startDate, endDate, parameters);
           }
         );
       } else {
-        await generateItinerary(parameters);
+        await generateItinerary(destination, startDate, endDate, parameters);
       }
     } catch (err: any) {
       console.error('Error generating itinerary:', err);
@@ -94,7 +98,7 @@ export function useChatMessageHandler({
   // Handle itinerary updates
   const handleItineraryUpdate = useCallback(async (message: string, requestType: string, details: any) => {
     try {
-      await updateItinerary(requestType, details);
+      await updateItinerary(message);
       addAIMessage("I've updated your itinerary with the requested changes. Please review them in the itinerary view.");
     } catch (err: any) {
       console.error('Error updating itinerary:', err);
@@ -109,7 +113,7 @@ export function useChatMessageHandler({
       const systemPrompt = promptTemplateService.getSystemPrompt(
         ChatIntent.GET_RECOMMENDATIONS,
         {
-          userPreferences: preferences,
+          userPreferences: preferences || undefined,
           currentDestination: parameters.location || conversationContext.getContext().currentDestination
         }
       );
@@ -118,7 +122,7 @@ export function useChatMessageHandler({
         ChatIntent.GET_RECOMMENDATIONS,
         parameters,
         {
-          userPreferences: preferences,
+          userPreferences: preferences || undefined,
           currentDestination: parameters.location || conversationContext.getContext().currentDestination
         }
       );
@@ -146,7 +150,7 @@ export function useChatMessageHandler({
       const systemPrompt = promptTemplateService.getSystemPrompt(
         ChatIntent.ASK_QUESTIONS,
         {
-          userPreferences: preferences,
+          userPreferences: preferences || undefined,
           currentDestination: conversationContext.getContext().currentDestination
         }
       );
@@ -155,7 +159,7 @@ export function useChatMessageHandler({
         ChatIntent.ASK_QUESTIONS,
         parameters,
         {
-          userPreferences: preferences,
+          userPreferences: preferences || undefined,
           currentDestination: conversationContext.getContext().currentDestination
         }
       );
@@ -183,7 +187,7 @@ export function useChatMessageHandler({
       const systemPrompt = promptTemplateService.getSystemPrompt(
         ChatIntent.GENERAL_CHAT,
         {
-          userPreferences: preferences,
+          userPreferences: preferences || undefined,
           currentDestination: conversationContext.getContext().currentDestination
         }
       );
@@ -192,7 +196,7 @@ export function useChatMessageHandler({
         ChatIntent.GENERAL_CHAT,
         parameters,
         {
-          userPreferences: preferences,
+          userPreferences: preferences || undefined,
           currentDestination: conversationContext.getContext().currentDestination
         }
       );
@@ -300,12 +304,12 @@ export function useChatMessageHandler({
   // Handle restoring previous itinerary
   const handleRestorePreviousItinerary = useCallback(async () => {
     try {
-      if (hasPreviousItinerary) {
+      if (hasPreviousItinerary()) {
         await showConfirmation(
           'Restore Previous Itinerary?',
           'This will replace your current itinerary. Would you like to continue?',
           async () => {
-            await restorePreviousItinerary();
+            restorePreviousItinerary();
             addAIMessage("I've restored your previous itinerary. You can view it in the itinerary panel.");
           }
         );

@@ -19,67 +19,71 @@ interface PromptContext {
   currentDestination?: string;
 }
 
+/**
+ * Service for generating contextual prompts based on user intent and conversation context
+ */
 export const promptTemplateService = {
   /**
-   * Get the appropriate system prompt template based on intent
+   * Get the appropriate system prompt based on intent and context
    */
   getSystemPrompt(intent: ChatIntent, context: PromptContext): string {
-    const basePrompt = `You are an AI travel planning assistant that helps users plan and modify their travel itineraries.`;
+    const basePrompt = `You are a helpful travel assistant specialized in creating personalized travel experiences. You have access to up-to-date information about destinations, activities, restaurants, and travel logistics.`;
     
     const contextInfo = this.getContextInfo(context);
-    
+
     switch (intent) {
       case ChatIntent.NEW_ITINERARY:
         return `${basePrompt}
-Your task is to create a new travel itinerary.
+Your task is to create a comprehensive travel itinerary based on the user's request.
 
 ${contextInfo}
 
-Focus on:
-- Creating a balanced itinerary that matches the user's preferences
-- Including specific times, locations, and travel durations
-- Suggesting authentic local experiences
-- Maintaining a realistic schedule with proper breaks
-- Considering budget constraints
-- Including practical logistics information`;
+Guidelines:
+- Create a detailed day-by-day itinerary with specific times and activities
+- Include restaurant recommendations for meals
+- Provide transportation details between locations
+- Include estimated costs and booking information
+- Add local tips and cultural insights
+- Format the response for easy parsing into a structured itinerary
+- Ensure activities align with user preferences and interests`;
 
       case ChatIntent.MODIFY_EXISTING:
         return `${basePrompt}
-Your task is to modify an existing travel itinerary.
+Your task is to modify an existing travel itinerary based on the user's specific request.
 
 ${contextInfo}
 
-Focus on:
-- Making requested changes while maintaining itinerary coherence
-- Adjusting affected timings and logistics
-- Preserving the overall flow and balance of activities
-- Ensuring modifications align with user preferences
-- Updating any impacted transportation or booking details`;
+Guidelines:
+- Make precise changes to the requested elements
+- Maintain the overall flow and structure of the itinerary
+- Adjust related elements (timing, transportation) as needed
+- Ensure modifications align with user preferences
+- Provide clear explanations for any significant changes`;
 
       case ChatIntent.GET_RECOMMENDATIONS:
         return `${basePrompt}
-Your task is to provide specific travel recommendations.
+Your task is to provide specific recommendations based on the user's request.
 
 ${contextInfo}
 
-Focus on:
-- Suggesting options that match user preferences and interests
-- Including practical details (location, price range, booking info)
-- Providing 2-3 alternatives with different characteristics
-- Explaining why each recommendation suits the user
-- Including insider tips and local insights`;
+Guidelines:
+- Provide 2-3 high-quality recommendations
+- Include practical details (location, hours, pricing, booking)
+- Explain why each recommendation fits the user's preferences
+- Include insider tips and local insights
+- Format recommendations clearly with bullet points`;
 
       case ChatIntent.ASK_QUESTIONS:
         return `${basePrompt}
-Your task is to answer travel-related questions accurately and helpfully.
+Your task is to answer travel-related questions with accurate, helpful information.
 
 ${contextInfo}
 
-Focus on:
-- Providing accurate, up-to-date information
-- Including specific details and examples
-- Explaining cultural context when relevant
-- Offering practical tips and advice
+Guidelines:
+- Provide accurate, up-to-date information
+- Include practical details and actionable advice
+- Consider the user's context and preferences in your answer
+- Offer additional related suggestions when appropriate
 - Citing reliable sources when possible`;
 
       case ChatIntent.GENERAL_CHAT:
@@ -119,7 +123,7 @@ Focus on:
   /**
    * Get formatted context information
    */
-  private getContextInfo(context: PromptContext): string {
+  getContextInfo(context: PromptContext): string {
     const sections: string[] = ['Context:'];
 
     if (context.userPreferences) {
@@ -149,7 +153,7 @@ Focus on:
     return sections.join('\n');
   },
 
-  private getNewItineraryPrompt(parameters: IntentParameters, context: PromptContext): string {
+  getNewItineraryPrompt(parameters: IntentParameters, context: PromptContext): string {
     return `Create a detailed travel itinerary for ${parameters.destination} 
 ${parameters.dates?.start ? `from ${parameters.dates.start}` : ''}
 ${parameters.dates?.end ? `to ${parameters.dates.end}` : ''}.
@@ -165,7 +169,7 @@ Please include:
 The itinerary should be formatted for the visual itinerary builder interface.`;
   },
 
-  private getModifyItineraryPrompt(parameters: IntentParameters, context: PromptContext): string {
+  getModifyItineraryPrompt(parameters: IntentParameters, context: PromptContext): string {
     const { modificationDetails } = parameters;
     return `Modify the current itinerary with the following changes:
 ${modificationDetails?.day ? `- Day: ${modificationDetails.day}` : ''}
@@ -182,7 +186,7 @@ Please:
 The changes should be reflected in the visual itinerary builder interface.`;
   },
 
-  private getRecommendationsPrompt(parameters: IntentParameters, context: PromptContext): string {
+  getRecommendationsPrompt(parameters: IntentParameters, context: PromptContext): string {
     const location = parameters.location || context.currentDestination;
     const type = parameters.recommendationType || 'general';
     
@@ -257,7 +261,7 @@ Please include:
 Format your response with clear headings and bullet points for easy reading.`;
   },
 
-  private getQuestionsPrompt(parameters: IntentParameters, context: PromptContext): string {
+  getQuestionsPrompt(parameters: IntentParameters, context: PromptContext): string {
     const { question } = parameters;
     return `Answer the following ${question?.type || 'travel-related'} question 
 ${question?.specificTopic ? `about ${question.specificTopic}` : ''}.
@@ -270,7 +274,7 @@ Please provide:
 5. Any necessary warnings or considerations`;
   },
 
-  private getGeneralChatPrompt(parameters: IntentParameters, context: PromptContext): string {
+  getGeneralChatPrompt(parameters: IntentParameters, context: PromptContext): string {
     return `Engage in a helpful travel-related conversation.
 
 Consider:

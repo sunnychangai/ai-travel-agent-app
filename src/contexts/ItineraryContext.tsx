@@ -261,7 +261,7 @@ export const ItineraryProvider = ({ children, initialItinerary = [], initialSugg
           
           if (userItineraries.length > 0) {
             // Sort by most recent and load the first one
-            const sortedItineraries = userItineraries.sort((a, b) => 
+            const sortedItineraries = userItineraries.sort((a: any, b: any) => 
               new Date(b.created_at || b.createdAt || 0).getTime() - 
               new Date(a.created_at || a.createdAt || 0).getTime()
             );
