@@ -35,10 +35,10 @@ export function ChatHorizontalSuggestions({
   ];
 
   return (
-    <div className={cn("border-t border-b bg-gray-50", className)}>
+    <div className={cn("", className)}>
       {/* Touch-sensitive horizontally scrollable container */}
       <div 
-        className="flex overflow-x-auto py-3 px-4 hide-scrollbar scroll-smooth" 
+        className="flex overflow-x-auto py-2 px-4 hide-scrollbar scroll-smooth" 
         style={{ 
           scrollbarWidth: 'none',
           WebkitOverflowScrolling: 'touch' // Smooth scrolling on iOS

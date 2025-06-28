@@ -143,7 +143,12 @@
     
     /* Adjust messages container for fixed input */
     .messages-with-fixed-input {
-      padding-bottom: 140px; /* Fixed input height + suggestions + margin */
+      padding-bottom: 180px; /* Increased from 140px to account for input + suggestions + spacing */
+    }
+    
+    /* Dynamic padding based on suggestion presence */
+    .messages-no-suggestions {
+      padding-bottom: 140px; /* Reduced padding when no suggestions */
     }
     
     /* Handle mobile Safari viewport units correctly */

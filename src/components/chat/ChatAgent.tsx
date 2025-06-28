@@ -10,6 +10,7 @@ import ChatInputArea from '../TravelPlanner/ChatInputArea';
 import ConversationDebugPanel from './ConversationDebugPanel';
 import { conversationFlowManager } from '../../services/conversationFlowManager';
 import { useUnifiedConversationContext } from '../../hooks/useUnifiedConversationContext';
+import { cn } from '../../lib/utils';
 
 // Custom hooks
 import useMessages from '../../hooks/useMessages';
@@ -411,7 +412,10 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white relative chat-container-mobile mobile-safari-viewport">
       {/* Messages area with bottom padding for fixed input */}
-      <div className="flex-1 overflow-y-auto p-2 relative flex flex-col messages-with-fixed-input md:pb-24">
+      <div className={cn(
+        "flex-1 overflow-y-auto p-2 relative flex flex-col md:pb-24",
+        suggestions && suggestions.length > 0 ? "messages-with-fixed-input" : "messages-no-suggestions"
+      )}>
         <ChatContainer 
           messages={messages}
           isTyping={isTyping}

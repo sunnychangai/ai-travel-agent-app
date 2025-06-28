@@ -178,7 +178,7 @@ const ChatInputArea = ({
           suggestions={suggestions}
           onSuggestionClick={handleSuggestionClick}
           disabled={isDisabled}
-          className="mb-2"
+          className="mb-1"
         />
       )}
       
