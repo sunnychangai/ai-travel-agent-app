@@ -93,6 +93,26 @@
   .hide-scrollbar {
     -ms-overflow-style: none; /* IE and Edge */
     scrollbar-width: none; /* Firefox */
+    /* Enhanced touch scrolling for mobile */
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    /* Smoother deceleration */
+    scroll-snap-type: x proximity;
+  }
+
+  /* Optional: Add subtle scroll indicators for mobile */
+  @media (max-width: 640px) {
+    .hide-scrollbar::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 20px;
+      height: 100%;
+      background: linear-gradient(to left, rgba(249, 250, 251, 0.8), transparent);
+      pointer-events: none;
+      z-index: 1;
+    }
   }
 
   /* Mobile avatar improvements */
