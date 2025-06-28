@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { SendIcon, Mic, Paperclip, ArrowUp } from "lucide-react";
@@ -48,10 +48,79 @@ const ChatInputArea = ({
   // Use local state if value/onChange props aren't provided
   const [localMessage, setLocalMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   
   // Determine if we're using controlled or uncontrolled behavior
   const isControlled = value !== undefined && onChange !== undefined;
   const message = isControlled ? value : localMessage;
+  
+  // **MOBILE KEYBOARD FIX**: Handle mobile keyboard visibility
+  useEffect(() => {
+    // Set CSS custom property for viewport height (mobile Safari fix)
+    const setVH = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+    
+    const handleFocus = () => {
+      // Scroll input into view when keyboard appears on mobile
+      if (inputRef.current && window.innerWidth <= 768) {
+        setTimeout(() => {
+          inputRef.current?.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        }, 300); // Delay to let keyboard animate in
+      }
+    };
+
+    const handleResize = () => {
+      // Update viewport height custom property
+      setVH();
+      
+      // Handle viewport changes when keyboard appears/disappears
+      if (inputRef.current && window.innerWidth <= 768) {
+        const viewportHeight = window.visualViewport?.height || window.innerHeight;
+        const windowHeight = window.innerHeight;
+        
+        // If viewport height is significantly smaller, keyboard is likely visible
+        if (viewportHeight < windowHeight * 0.75) {
+          inputRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        }
+      }
+    };
+
+    // Set initial viewport height
+    setVH();
+
+    const input = inputRef.current;
+    if (input) {
+      input.addEventListener('focus', handleFocus);
+    }
+    
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', setVH);
+    
+    // Visual Viewport API support (iOS Safari 13+)
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleResize);
+    }
+    
+    return () => {
+      if (input) {
+        input.removeEventListener('focus', handleFocus);
+      }
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', setVH);
+      
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleResize);
+      }
+    };
+  }, []);
   
   // Update message state based on controlled or uncontrolled mode
   const updateMessage = useCallback((newValue: string) => {
@@ -123,12 +192,15 @@ const ChatInputArea = ({
             onKeyDown={handleKeyDown}
             placeholder={placeholder || "Ask about your next destination..."}
             className={cn(
-              "flex-1 h-12 px-6 rounded-full bg-gray-100 border-0 text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500",
+              "flex-1 h-12 px-6 rounded-full bg-gray-100 border-0 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500",
+              // Mobile-specific styling
+              "text-base md:text-sm", // 16px on mobile to prevent zoom, 14px on desktop
               isDisabled ? "bg-gray-200 text-gray-500" : "bg-gray-100 text-gray-700",
               isLoading ? "border-blue-300" : "",
               error ? "focus:ring-red-500" : ""
             )}
             disabled={isDisabled}
+            ref={inputRef}
           />
           <button
             onClick={handleSendMessage}

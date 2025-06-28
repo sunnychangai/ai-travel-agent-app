@@ -409,8 +409,9 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
   }, [itineraryDestination, setCurrentDestination, updateSuggestionsForDestination]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-white">
-      <div className="flex-1 overflow-y-auto p-2 relative flex flex-col">
+    <div className="flex flex-col h-full overflow-hidden bg-white relative chat-container-mobile mobile-safari-viewport">
+      {/* Messages area with bottom padding for fixed input */}
+      <div className="flex-1 overflow-y-auto p-2 relative flex flex-col messages-with-fixed-input md:pb-24">
         <ChatContainer 
           messages={messages}
           isTyping={isTyping}
@@ -418,14 +419,17 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
         />
       </div>
       
-      <div className="p-3 pb-20 md:pb-6 border-t">
-        <ChatInputArea
-          onSend={handleSendMessage}
-          isDisabled={isInputDisabled}
-          isLoading={isTyping}
-          suggestions={suggestions}
-          onSuggestionClick={handleSuggestionClick}
-        />
+      {/* Fixed chat input area above tab navigation */}
+      <div className="fixed bottom-16 left-0 right-0 bg-white border-t shadow-lg z-40 fixed-chat-input md:relative md:bottom-auto md:border-t md:shadow-none md:z-auto keyboard-adjust">
+        <div className="p-3 md:pb-6">
+          <ChatInputArea
+            onSend={handleSendMessage}
+            isDisabled={isInputDisabled}
+            isLoading={isTyping}
+            suggestions={suggestions}
+            onSuggestionClick={handleSuggestionClick}
+          />
+        </div>
       </div>
       
       <ConfirmationDialog

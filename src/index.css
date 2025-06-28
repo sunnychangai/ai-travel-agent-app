@@ -111,5 +111,66 @@
       font-weight: 600;
       letter-spacing: 0.025em;
     }
+    
+    /* Fixed chat input optimizations for mobile Safari */
+    .fixed-chat-input {
+      /* Ensure input stays above tab navigation */
+      bottom: 64px; /* Tab height + small margin */
+      padding-bottom: env(safe-area-inset-bottom); /* Handle iPhone notch */
+      /* Handle viewport changes when keyboard appears */
+      position: fixed !important;
+    }
+    
+    /* Adjust messages container for fixed input */
+    .messages-with-fixed-input {
+      padding-bottom: 140px; /* Fixed input height + suggestions + margin */
+    }
+    
+    /* Handle mobile Safari viewport units correctly */
+    .chat-container-mobile {
+      height: 100vh;
+      height: -webkit-fill-available; /* Safari mobile fix */
+    }
+    
+    /* Prevent zoom on input focus (iOS Safari) */
+    input[type="text"], 
+    textarea {
+      font-size: 16px; /* Prevents zoom on iOS */
+    }
+    
+    /* Ensure keyboard doesn't cover input */
+    .keyboard-adjust {
+      padding-bottom: env(keyboard-inset-height, 0);
+    }
+    
+    /* Better visual viewport handling */
+    .visual-viewport-adjust {
+      height: 100vh;
+      height: calc(var(--vh, 1vh) * 100);
+    }
+  }
+
+  /* iOS Safari specific fixes */
+  @supports (-webkit-touch-callout: none) {
+    /* Mobile Safari specific viewport handling */
+    .mobile-safari-viewport {
+      height: 100vh;
+      height: -webkit-fill-available;
+    }
+    
+    /* Better input handling on mobile Safari */
+    .fixed-chat-input {
+      -webkit-transform: translateZ(0); /* Force hardware acceleration */
+      transform: translateZ(0);
+      /* Better positioning for iOS Safari */
+      bottom: max(64px, env(safe-area-inset-bottom, 0px));
+    }
+    
+    /* Handle iOS keyboard overlay */
+    @media screen and (max-height: 500px) {
+      .fixed-chat-input {
+        bottom: 10px; /* Move closer to bottom when keyboard is visible */
+      }
+    }
   }
 }
