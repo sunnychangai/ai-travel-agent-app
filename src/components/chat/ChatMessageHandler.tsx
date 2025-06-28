@@ -182,6 +182,49 @@ export function useChatMessageHandler({
       console.log(`🔍 Processing ${recommendationType} recommendation request for ${location}`);
       console.log('📋 Request parameters:', parameters);
       
+      // **FIX: Clear cache for restaurant recommendations to ensure fresh structured format**
+      if (recommendationType === 'restaurants') {
+        try {
+          await fastRecommendationService.clearCache();
+          console.log('🧹 Cleared recommendation cache for fresh format');
+        } catch (cacheError) {
+          console.warn('Cache clear failed, continuing with request:', cacheError);
+        }
+      }
+      
+      // **FIX: For restaurant requests, ALWAYS use fastRecommendationService to ensure structured format**
+      if (recommendationType === 'restaurants') {
+        console.log('🍽️ Restaurant request detected - forcing fastRecommendationService for structured format');
+        
+        // Extract user preferences for the request
+        const enhancedPreferences = preferences ? {
+          interests: preferences.interests.map(interest => interest.label),
+          dietaryPreferences: parameters.cuisineType ? [parameters.cuisineType] : preferences.dietaryPreferences.map(pref => pref.label),
+          budget: parameters.priceRange || preferences.budget
+        } : {
+          dietaryPreferences: parameters.cuisineType ? [parameters.cuisineType] : undefined
+        };
+        
+        const aiResponse = await fastRecommendationService.getRecommendations({
+          location,
+          type: 'restaurants',
+          userPreferences: enhancedPreferences
+        });
+        
+        addAIMessage(aiResponse);
+        
+        // Update enhanced context with the recommendation
+        conversationFlowManager.trackConversationTurn('assistant', 'Restaurant recommendation provided', ChatIntent.GET_RECOMMENDATIONS, {
+          ...parameters,
+          location,
+          recommendationType: 'restaurants'
+        });
+        
+        // Set current destination for future context
+        setCurrentDestination(location);
+        return;
+      }
+      
       // Check if this is a specific request (has cuisine type, dietary preferences, etc.)
       const hasSpecificCriteria = parameters.cuisineType || 
                                   parameters.dietaryPreferences || 

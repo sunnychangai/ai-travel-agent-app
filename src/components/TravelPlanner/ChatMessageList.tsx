@@ -36,12 +36,22 @@ const ChatMessage = memo(({ message, isFirstMessage }: { message: Message; isFir
     )}
   >
     {message.sender === "ai" && (
-      <Avatar className="h-8 w-8 flex-shrink-0 mt-1">
+      <Avatar className="h-10 w-10 sm:h-8 sm:w-8 flex-shrink-0 mt-1" data-mobile-avatar="true">
         <AvatarImage
           src="https://api.dicebear.com/7.x/avataaars/svg?seed=travel-ai"
           alt="AI"
+          onError={(e) => {
+            // Force fallback on error
+            e.currentTarget.style.display = 'none';
+          }}
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+          }}
         />
-        <AvatarFallback>AI</AvatarFallback>
+        <AvatarFallback className="bg-blue-500 text-white font-semibold text-sm">
+          AI
+        </AvatarFallback>
       </Avatar>
     )}
 
@@ -66,12 +76,22 @@ const ChatMessage = memo(({ message, isFirstMessage }: { message: Message; isFir
     </div>
 
     {message.sender === "user" && (
-      <Avatar className="h-8 w-8 flex-shrink-0 mt-1 mr-1">
+      <Avatar className="h-10 w-10 sm:h-8 sm:w-8 flex-shrink-0 mt-1 mr-1" data-mobile-avatar="true">
         <AvatarImage
           src="https://api.dicebear.com/7.x/avataaars/svg?seed=user"
           alt="User"
+          onError={(e) => {
+            // Force fallback on error
+            e.currentTarget.style.display = 'none';
+          }}
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+          }}
         />
-        <AvatarFallback>U</AvatarFallback>
+        <AvatarFallback className="bg-green-500 text-white font-semibold text-sm">
+          U
+        </AvatarFallback>
       </Avatar>
     )}
   </div>
@@ -135,12 +155,22 @@ function ChatMessageList({
         {isLoading && (
           <div className="py-0 pl-1">
             <div className="flex items-start gap-3">
-              <Avatar className="h-8 w-8 flex-shrink-0 mt-1">
+              <Avatar className="h-10 w-10 sm:h-8 sm:w-8 flex-shrink-0 mt-1" data-mobile-avatar="true">
                 <AvatarImage
                   src="https://api.dicebear.com/7.x/avataaars/svg?seed=travel-ai"
                   alt="AI"
+                  onError={(e) => {
+                    // Force fallback on error
+                    e.currentTarget.style.display = 'none';
+                  }}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                  }}
                 />
-                <AvatarFallback>AI</AvatarFallback>
+                <AvatarFallback className="bg-blue-500 text-white font-semibold text-sm">
+                  AI
+                </AvatarFallback>
               </Avatar>
               <div className="rounded-tl-md rounded-tr-2xl rounded-bl-2xl rounded-br-2xl p-2 bg-gray-200 min-w-[60px] min-h-[36px] flex items-center shadow-sm border border-gray-200">
                 <TypingIndicator />

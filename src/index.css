@@ -94,4 +94,22 @@
     -ms-overflow-style: none; /* IE and Edge */
     scrollbar-width: none; /* Firefox */
   }
+
+  /* Mobile avatar improvements */
+  @media (max-width: 640px) {
+    /* Ensure avatars are prominent on mobile */
+    [data-mobile-avatar="true"] {
+      min-width: 2.5rem;
+      min-height: 2.5rem;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+    
+    /* Better fallback text visibility on mobile */
+    [data-mobile-avatar="true"] [data-radix-avatar-fallback] {
+      font-size: 0.875rem;
+      font-weight: 600;
+      letter-spacing: 0.025em;
+    }
+  }
 }

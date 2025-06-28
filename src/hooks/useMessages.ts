@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useEffect } from 'react';
+import { useReducer, useCallback, useEffect, useRef } from 'react';
 import { UIMessage } from '../types/chat';
 import { performanceConfig } from '../config/performance';
 import { conversationFlowManager } from '../services/conversationFlowManager';
@@ -7,52 +7,120 @@ import { useAuth } from '../contexts/AuthContext';
 // Generate unique IDs for messages
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
+// **MOBILE SAFARI FIX**: In-memory backup for final fallback
+let inMemoryBackup: { [key: string]: UIMessage[] } = {};
+
+// **MOBILE SAFARI DETECTION**: Detect if we're running on mobile Safari
+const isMobileSafari = () => {
+  const ua = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(ua) && /Safari/.test(ua) && !/Chrome/.test(ua) && !/CriOS/.test(ua) && !/FxiOS/.test(ua);
+};
+
 // Storage key for persisting messages - will be user-specific
 const getMessagesStorageKey = (userId?: string) => {
   return userId ? `chat_messages_user_${userId}` : 'chat_messages_session';
 };
 const MAX_STORED_MESSAGES = 50; // Limit stored messages to prevent localStorage bloat
 
-// Utility functions for localStorage persistence
+// **MOBILE SAFARI FIX**: Enhanced storage with multiple fallbacks
+const persistToAllStorages = (key: string, data: UIMessage[]) => {
+  const jsonData = JSON.stringify(data);
+  
+  // **FINAL FALLBACK**: Always store in memory first
+  inMemoryBackup[key] = [...data];
+  
+  try {
+    // Primary: localStorage
+    localStorage.setItem(key, jsonData);
+  } catch (e) {
+    console.warn('localStorage failed on mobile:', e);
+  }
+  
+  try {
+    // Fallback 1: sessionStorage (survives page refresh but not tab close)
+    sessionStorage.setItem(key + '_session', jsonData);
+  } catch (e) {
+    console.warn('sessionStorage failed on mobile:', e);
+  }
+  
+  try {
+    // Fallback 2: IndexedDB for mobile Safari (more reliable)
+    if ('indexedDB' in window) {
+      const request = indexedDB.open('ChatHistory', 1);
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains('messages')) {
+          db.createObjectStore('messages', { keyPath: 'key' });
+        }
+      };
+      request.onsuccess = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        const transaction = db.transaction(['messages'], 'readwrite');
+        const store = transaction.objectStore('messages');
+        store.put({ key, data: jsonData, timestamp: Date.now() });
+      };
+    }
+  } catch (e) {
+    console.warn('IndexedDB failed on mobile:', e);
+  }
+};
+
+// **MOBILE SAFARI FIX**: Enhanced loading with multiple fallbacks
+const loadFromAllStorages = (key: string): UIMessage[] => {
+  let data: string | null = null;
+  
+  // Try localStorage first
+  try {
+    data = localStorage.getItem(key);
+  } catch (e) {
+    console.warn('localStorage read failed on mobile:', e);
+  }
+  
+  // Fallback to sessionStorage
+  if (!data) {
+    try {
+      data = sessionStorage.getItem(key + '_session');
+    } catch (e) {
+      console.warn('sessionStorage read failed on mobile:', e);
+    }
+  }
+  
+  // Parse and return if found
+  if (data) {
+    try {
+      const rawMessages = JSON.parse(data);
+      return rawMessages.map((msg: any) => ({
+        ...msg,
+        timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
+      }));
+    } catch (e) {
+      console.error('Failed to parse stored messages:', e);
+    }
+  }
+  
+  // **FINAL FALLBACK**: Check in-memory backup
+  if (inMemoryBackup[key]) {
+    console.log('📱 Using in-memory backup for messages');
+    return [...inMemoryBackup[key]];
+  }
+  
+  return [];
+};
+
+// Utility functions for localStorage persistence with mobile Safari fixes
 const saveMessagesToStorage = (messages: UIMessage[], userId?: string) => {
   try {
     // Only store the most recent messages to prevent localStorage bloat
     const messagesToStore = messages.slice(-MAX_STORED_MESSAGES);
     const storageKey = getMessagesStorageKey(userId);
-    localStorage.setItem(storageKey, JSON.stringify(messagesToStore));
+    
+    // **MOBILE SAFARI FIX**: Use enhanced persistence
+    persistToAllStorages(storageKey, messagesToStore);
+    
+    console.log(`💾 Saved ${messagesToStore.length} messages to multiple storages for mobile reliability`);
   } catch (error) {
-    console.error('Error saving messages to localStorage:', error);
+    console.error('Error saving messages to storage:', error);
   }
-};
-
-// **DESTINATION VALIDATION**: Validate message context consistency
-const validateMessageContextConsistency = (messages: UIMessage[], currentDestination?: string): boolean => {
-  if (!currentDestination || messages.length === 0) {
-    return true; // Allow if no destination context or no messages
-  }
-  
-  // Check recent messages for destination mentions that conflict
-  const recentMessages = messages.slice(-10); // Check last 10 messages
-  const destinationMentions = recentMessages
-    .map(msg => msg.content.toLowerCase())
-    .filter(content => 
-      content.includes('trip to') || 
-      content.includes('visit') || 
-      content.includes('itinerary for') ||
-      content.includes('plan') && (content.includes('to') || content.includes('for'))
-    );
-  
-  if (destinationMentions.length === 0) {
-    return true; // No destination mentions, assume consistent
-  }
-  
-  // Simple validation - if current destination is mentioned recently, consider consistent
-  const currentDestLower = currentDestination.toLowerCase();
-  const hasRecentMention = destinationMentions.some(mention => 
-    mention.includes(currentDestLower) || currentDestLower.includes(mention.replace(/[^a-z\s]/g, '').trim())
-  );
-  
-  return hasRecentMention;
 };
 
 /**
@@ -61,45 +129,45 @@ const validateMessageContextConsistency = (messages: UIMessage[], currentDestina
 function loadMessagesFromStorage(userId?: string): UIMessage[] {
   try {
     const key = getMessagesStorageKey(userId);
-    const stored = localStorage.getItem(key);
     
-    if (!stored) return [];
+    // **MOBILE SAFARI FIX**: Use enhanced loading from multiple storages
+    const messages = loadFromAllStorages(key);
     
-    const rawMessages = JSON.parse(stored);
+    if (messages.length === 0) {
+      console.log('📱 No messages found in any storage layer');
+      return [];
+    }
     
-    // Ensure timestamps are Date objects
-    const messages: UIMessage[] = rawMessages.map((msg: any) => ({
-      ...msg,
-      timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
-    }));
-    
-    // **DESTINATION VALIDATION**: Check conversation context consistency
+    // **MOBILE FIX**: Simplified validation to prevent overly aggressive clearing
     try {
       const session = conversationFlowManager.getCurrentSession();
       const conversationDestination = session?.destination;
       
-      if (conversationDestination) {
-        const isConsistent = validateMessageContextConsistency(messages, conversationDestination);
+      // Only clear if there's a clear mismatch (much less aggressive)
+      if (conversationDestination && messages.length > 5) {
+        const recentMessages = messages.slice(-3); // Only check last 3 messages
+        const hasDestinationConflict = recentMessages.some(msg => {
+          const content = msg.content.toLowerCase();
+          const dest = conversationDestination.toLowerCase();
+          // Only flag clear conflicts (not minor variations)
+          return content.includes('trip to') && !content.includes(dest) && 
+                 content.split(' ').some(word => word.length > 3 && !dest.includes(word));
+        });
         
-        if (!isConsistent) {
-          console.log('🚨 useMessages: Message context inconsistent with conversation destination');
-          console.log(`📍 Conversation: "${conversationDestination}"`);
-          console.log('💬 Recent messages may be for different destination, clearing');
-          
-          // Clear inconsistent messages
-          localStorage.removeItem(key);
+        if (hasDestinationConflict) {
+          console.log('🚨 Clear destination conflict detected, clearing messages');
           return [];
         }
       }
     } catch (validationError) {
-      console.error('Error during message validation:', validationError);
+      console.warn('Validation error, continuing with messages:', validationError);
       // Continue with messages even if validation fails
     }
     
-    console.log(`📥 useMessages: Loaded ${messages.length} validated messages for user:`, userId);
+    console.log(`📥 Loaded ${messages.length} messages for user:`, userId);
     return messages;
   } catch (error) {
-    console.error('❌ useMessages: Error loading messages from storage:', error);
+    console.error('❌ Error loading messages from storage:', error);
     return [];
   }
 }
@@ -202,56 +270,126 @@ function messagesReducer(state: MessagesState, action: MessageAction): MessagesS
 }
 
 /**
- * Hook for managing chat messages with performance optimizations and persistence
+ * Hook for managing chat messages with performance optimizations and mobile-enhanced persistence
  */
 export function useMessages() {
   const { user } = useAuth();
   const [state, dispatch] = useReducer(messagesReducer, initialState);
+  const lastSavedRef = useRef<string>('');
+  const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // **MOBILE SAFARI FIX**: Immediate persistence helper
+  const persistMessagesImmediately = useCallback((messages: UIMessage[]) => {
+    if (messages.length > 0) {
+      const messagesHash = JSON.stringify(messages.map(m => m.id + m.content)).slice(0, 50);
+      
+      // Only save if messages actually changed (prevent excessive saves)
+      if (messagesHash !== lastSavedRef.current) {
+        saveMessagesToStorage(messages, user?.id);
+        lastSavedRef.current = messagesHash;
+        console.log('💾 Immediate persistence triggered for mobile reliability');
+      }
+    }
+  }, [user?.id]);
   
   // Load messages from localStorage on initialization
   useEffect(() => {
     const savedMessages = loadMessagesFromStorage(user?.id);
-    console.log('useMessages: Loading saved messages from localStorage:', savedMessages.length, 'for user:', user?.id);
+    console.log('useMessages: Loading saved messages from storage:', savedMessages.length, 'for user:', user?.id);
     if (savedMessages.length > 0) {
       dispatch({ type: 'LOAD_MESSAGES', messages: savedMessages });
       console.log('useMessages: Loaded messages into state');
     }
   }, [user?.id]);
 
-  // Save messages immediately when visibility changes (tab switching)
+  // **MOBILE SAFARI FIX**: Enhanced event handlers for mobile persistence
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden' && state.messages.length > 0) {
-        console.log('useMessages: Tab hidden, ensuring messages are saved');
-        saveMessagesToStorage(state.messages, user?.id);
+        console.log('📱 Tab/app hidden, immediate save for mobile');
+        persistMessagesImmediately(state.messages);
       } else if (document.visibilityState === 'visible') {
-        console.log('useMessages: Tab visible, messages should be preserved');
+        console.log('📱 Tab/app visible, messages preserved');
       }
     };
 
+    const handleBeforeUnload = () => {
+      console.log('📱 Page unloading, final save attempt');
+      persistMessagesImmediately(state.messages);
+    };
+
+    const handlePageHide = () => {
+      console.log('📱 Page hide event, mobile save');
+      persistMessagesImmediately(state.messages);
+    };
+
+    const handleFreeze = () => {
+      console.log('📱 Page freeze event, mobile save');
+      persistMessagesImmediately(state.messages);
+    };
+
+    // Standard events
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    // Mobile-specific events
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('freeze', handleFreeze);
+    
+    // Focus/blur for additional safety
+    window.addEventListener('blur', () => persistMessagesImmediately(state.messages));
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('freeze', handleFreeze);
+      window.removeEventListener('blur', () => persistMessagesImmediately(state.messages));
     };
-  }, [state.messages, user?.id]);
+  }, [state.messages, persistMessagesImmediately]);
   
-  // Save messages to localStorage whenever messages change
+  // **MOBILE SAFARI FIX**: Periodic auto-save for extra reliability
+  useEffect(() => {
+    if (autoSaveIntervalRef.current) {
+      clearInterval(autoSaveIntervalRef.current);
+    }
+    
+    if (state.messages.length > 0) {
+      // More aggressive saving on mobile Safari
+      const saveInterval = isMobileSafari() ? 5000 : 10000; // 5s for Safari, 10s for others
+      
+      autoSaveIntervalRef.current = setInterval(() => {
+        persistMessagesImmediately(state.messages);
+      }, saveInterval);
+      
+      console.log(`📱 Auto-save enabled every ${saveInterval/1000}s for ${isMobileSafari() ? 'mobile Safari' : 'other browsers'}`);
+    }
+    
+    return () => {
+      if (autoSaveIntervalRef.current) {
+        clearInterval(autoSaveIntervalRef.current);
+      }
+    };
+  }, [state.messages, persistMessagesImmediately]);
+  
+  // **MOBILE SAFARI FIX**: Immediate save on every message change
   useEffect(() => {
     if (state.messages.length > 0) {
-      console.log('useMessages: Saving', state.messages.length, 'messages to localStorage for user:', user?.id);
-      saveMessagesToStorage(state.messages, user?.id);
+      persistMessagesImmediately(state.messages);
     }
-  }, [state.messages, user?.id]);
+  }, [state.messages, persistMessagesImmediately]);
   
   // Add a user message to the chat
   const addUserMessage = useCallback((content: string): string => {
     dispatch({ type: 'ADD_USER_MESSAGE', content });
+    // Messages will be auto-saved by the effect above
     return state.lastMessageId || '';
   }, [state.lastMessageId]);
   
   // Add an AI message to the chat
   const addAIMessage = useCallback((content: string): string => {
     dispatch({ type: 'ADD_AI_MESSAGE', content });
+    // Messages will be auto-saved by the effect above
     return state.lastMessageId || '';
   }, [state.lastMessageId]);
   
@@ -267,26 +405,62 @@ export function useMessages() {
     }
   }, [state.messages.length]);
   
-  // Clear all messages and localStorage
+  // **MOBILE SAFARI FIX**: Enhanced clear with multi-storage cleanup
   const clearMessages = useCallback(() => {
     dispatch({ type: 'CLEAR_MESSAGES' });
+    
+    // Clear from all storage layers
+    const storageKey = getMessagesStorageKey(user?.id);
+    
+    // Clear in-memory backup first
+    delete inMemoryBackup[storageKey];
+    
     try {
-      localStorage.removeItem(getMessagesStorageKey(user?.id));
+      localStorage.removeItem(storageKey);
+      sessionStorage.removeItem(storageKey + '_session');
+      
+      // Clear IndexedDB
+      if ('indexedDB' in window) {
+        const request = indexedDB.open('ChatHistory', 1);
+        request.onsuccess = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (db.objectStoreNames.contains('messages')) {
+            const transaction = db.transaction(['messages'], 'readwrite');
+            const store = transaction.objectStore('messages');
+            store.delete(storageKey);
+          }
+        };
+      }
+      
+      console.log('📱 Cleared messages from all storage layers');
     } catch (error) {
-      console.error('Error clearing messages from localStorage:', error);
+      console.error('Error clearing messages from storage:', error);
     }
   }, [user?.id]);
   
   // Get the current number of stored messages for debugging/info
   const getStoredMessageCount = useCallback(() => {
     try {
-      const stored = localStorage.getItem(getMessagesStorageKey(user?.id));
-      return stored ? JSON.parse(stored).length : 0;
+      const messages = loadFromAllStorages(getMessagesStorageKey(user?.id));
+      return messages.length;
     } catch (error) {
       console.error('Error getting stored message count:', error);
       return 0;
     }
   }, [user?.id]);
+  
+  // **MOBILE DEBUG**: Get storage status for debugging mobile issues
+  const getStorageStatus = useCallback(() => {
+    const storageKey = getMessagesStorageKey(user?.id);
+    return {
+      isMobileSafari: isMobileSafari(),
+      localStorage: !!localStorage.getItem(storageKey),
+      sessionStorage: !!sessionStorage.getItem(storageKey + '_session'),
+      inMemory: !!inMemoryBackup[storageKey],
+      messageCount: state.messages.length,
+      storageKey
+    };
+  }, [user?.id, state.messages.length]);
   
   return {
     messages: state.messages,
@@ -295,6 +469,7 @@ export function useMessages() {
     initializeWithWelcome,
     clearMessages,
     getStoredMessageCount,
+    getStorageStatus, // For debugging mobile issues
   };
 }
 

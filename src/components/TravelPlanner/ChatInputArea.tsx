@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from "../../components/ui/tooltip";
 import { cn } from "../../lib/utils";
+import { ChatHorizontalSuggestions } from "../chat/ChatHorizontalSuggestions";
 
 interface SuggestionChip {
   id: string;
@@ -95,16 +96,6 @@ const ChatInputArea = ({
     }
   }, [updateMessage, onSuggestionClick]);
 
-  // Array of color classes for suggestion bubbles
-  const bubbleColors = [
-    "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200",
-    "bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200",
-    "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200",
-    "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200",
-    "bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200",
-    "bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200",
-  ];
-
   // Memoize onChange handler for the input
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     updateMessage(e.target.value);
@@ -112,23 +103,14 @@ const ChatInputArea = ({
 
   return (
     <div className="flex flex-col w-full">
-      {/* Suggestion chips - now directly in the chat input area */}
+      {/* Suggestion chips - now using horizontal scrolling component */}
       {suggestions && suggestions.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2 overflow-x-auto pb-1">
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={suggestion.id}
-              onClick={() => handleSuggestionClick(suggestion)}
-              className={cn(
-                "rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap",
-                bubbleColors[index % bubbleColors.length]
-              )}
-              disabled={isDisabled}
-            >
-              {suggestion.text}
-            </button>
-          ))}
-        </div>
+        <ChatHorizontalSuggestions
+          suggestions={suggestions}
+          onSuggestionClick={handleSuggestionClick}
+          disabled={isDisabled}
+          className="mb-2"
+        />
       )}
       
       {/* Input area - redesigned to match landing page */}
