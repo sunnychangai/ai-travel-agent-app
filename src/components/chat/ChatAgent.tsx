@@ -414,6 +414,7 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
       {/* Messages area with bottom padding for fixed input */}
       <div className={cn(
         "flex-1 overflow-y-auto p-2 relative flex flex-col md:pb-24",
+        "overflow-x-hidden", // Prevent horizontal overflow issues
         suggestions && suggestions.length > 0 ? "messages-with-fixed-input" : "messages-no-suggestions"
       )}>
         <ChatContainer 
@@ -423,9 +424,13 @@ export function ChatAgent({ onDestinationDetected }: ChatAgentProps) {
         />
       </div>
       
-      {/* Fixed chat input area above tab navigation */}
-      <div className="fixed bottom-16 left-0 right-0 bg-white border-t shadow-lg z-40 fixed-chat-input md:relative md:bottom-auto md:border-t md:shadow-none md:z-auto keyboard-adjust">
-        <div className="p-3 md:pb-6">
+      {/* Fixed chat input area above tab navigation - Mobile Safari Fix */}
+      <div className={cn(
+        "fixed left-0 right-0 bg-white border-t shadow-lg z-40 md:relative md:bottom-auto md:border-t md:shadow-none md:z-auto",
+        "bottom-16 fixed-chat-input keyboard-adjust", // Mobile positioning
+        "max-w-full overflow-hidden" // Prevent width issues
+      )}>
+        <div className="p-3 md:pb-6 max-w-full">
           <ChatInputArea
             onSend={handleSendMessage}
             isDisabled={isInputDisabled}
