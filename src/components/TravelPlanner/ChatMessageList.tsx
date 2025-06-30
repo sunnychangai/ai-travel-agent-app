@@ -142,9 +142,12 @@ function ChatMessageList({
 
   return (
     <div className={cn("w-full bg-white", className)}>
-      <div className="px-2 pr-1">
+      <div className="px-2 pr-1 pb-16">
         {messages.map((message, index) => (
-          <div key={message.id} className="py-1 w-full overflow-hidden">
+          <div key={message.id} className={cn(
+            "py-2 w-full overflow-hidden",
+            index === messages.length - 1 ? "pb-12" : ""
+          )}>
             <ChatMessage 
               message={message} 
               isFirstMessage={index === 0} 

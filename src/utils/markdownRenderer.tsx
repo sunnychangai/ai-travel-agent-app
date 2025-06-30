@@ -2,7 +2,7 @@ import React from 'react';
 
 /**
  * Simple markdown renderer for chat messages
- * Handles basic formatting: **bold**, *italic*, line breaks, and emojis
+ * Handles basic formatting: **bold**, *italic*, links, line breaks, and emojis
  */
 export const renderMarkdown = (text: string): React.ReactNode => {
   if (!text) return text;
@@ -13,12 +13,12 @@ export const renderMarkdown = (text: string): React.ReactNode => {
     let currentIndex = 0;
     let partKey = 0;
 
-    // Find all bold text (**text**)
-    const boldRegex = /\*\*(.+?)\*\*/g;
+    // Combined regex to find both bold text and links
+    const markdownRegex = /(\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\))/g;
     let match;
 
-    while ((match = boldRegex.exec(str)) !== null) {
-      // Add text before the bold
+    while ((match = markdownRegex.exec(str)) !== null) {
+      // Add text before the current match
       if (currentIndex < match.index) {
         const beforeText = str.slice(currentIndex, match.index);
         if (beforeText) {
@@ -26,12 +26,29 @@ export const renderMarkdown = (text: string): React.ReactNode => {
         }
       }
 
-      // Add the bold text
-      parts.push(<strong key={`bold-${partKey++}`}>{match[1]}</strong>);
+      // Check if it's a bold match (**text**)
+      if (match[2]) {
+        parts.push(<strong key={`bold-${partKey++}`}>{match[2]}</strong>);
+      }
+      // Check if it's a link match [text](url)
+      else if (match[3] && match[4]) {
+        parts.push(
+          <a 
+            key={`link-${partKey++}`} 
+            href={match[4]} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 underline"
+          >
+            {match[3]}
+          </a>
+        );
+      }
+
       currentIndex = match.index + match[0].length;
     }
 
-    // Add remaining text after last bold
+    // Add remaining text after last match
     if (currentIndex < str.length) {
       const remainingText = str.slice(currentIndex);
       if (remainingText) {
@@ -39,7 +56,7 @@ export const renderMarkdown = (text: string): React.ReactNode => {
       }
     }
 
-    // If no bold text found, return original string
+    // If no matches found, return original string
     if (parts.length === 0) {
       return [<span key="original">{str}</span>];
     }

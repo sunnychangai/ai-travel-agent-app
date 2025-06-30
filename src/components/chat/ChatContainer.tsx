@@ -39,7 +39,7 @@ const ChatContainer = React.memo(({
       
       {isTyping && <TypingIndicator />}
       
-      <div ref={messagesEndRef} />
+      <div ref={messagesEndRef} className="h-8" />
       
       <ErrorAlert message={error} />
     </div>

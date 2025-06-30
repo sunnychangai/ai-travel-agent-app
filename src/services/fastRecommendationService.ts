@@ -40,93 +40,94 @@ export const fastRecommendationService = {
   },
 
   /**
-   * Infer cuisine type and generate description from restaurant name
+   * Infer cuisine type from restaurant name
    */
   getCuisineAndDescription(restaurantName: string): { cuisine: string; description: string } {
     const name = restaurantName.toLowerCase();
     
-    // Define cuisine patterns and descriptions
+    // Define cuisine patterns
     const cuisinePatterns = [
       {
-        patterns: ['dishoom', 'bombay', 'indian', 'curry', 'tandoor', 'masala'],
-        cuisine: '🍛 Indian Cuisine',
-        descriptions: [
-          'Authentic Indian flavors with aromatic spices and traditional dishes.',
-          'Modern Indian dining with classic favorites and innovative twists.',
-          'Vibrant Indian restaurant known for its flavorful curries and fresh naan.'
-        ]
+        patterns: ['seafood', 'navy', 'beach', 'ocean', 'fish', 'lobster', 'crab', 'oyster'],
+        cuisine: '🦞 Seafood'
       },
       {
-        patterns: ['ramsay', 'gordon', 'british', 'english'],
-        cuisine: '🇬🇧 British Fine Dining',
-        descriptions: [
-          'Sophisticated British cuisine with seasonal ingredients and expert preparation.',
-          'Elegant fine dining experience featuring modern British gastronomy.',
-          'Premium British restaurant offering exceptional culinary artistry.'
-        ]
+        patterns: ['pancake', 'breakfast', 'brunch', 'diner', 'cafe'],
+        cuisine: '🥞 American Breakfast'
       },
       {
-        patterns: ['ivy', 'brasserie', 'bistro'],
-        cuisine: '🍷 Contemporary European',
-        descriptions: [
-          'Stylish dining with contemporary European dishes and classic cocktails.',
-          'Modern European cuisine in an elegant and welcoming atmosphere.',
-          'Refined European dining with impeccable service and seasonal menus.'
-        ]
+        patterns: ['grill', 'steakhouse', 'chophouse', 'tavern', 'pub'],
+        cuisine: '🥩 American Grill'
       },
       {
-        patterns: ['pizza', 'italian', 'lombardi', 'trattoria'],
-        cuisine: '🍕 Italian',
-        descriptions: [
-          'Authentic Italian cuisine with fresh ingredients and traditional recipes.',
-          'Classic Italian dining featuring handmade pasta and wood-fired pizzas.',
-          'Traditional Italian flavors in a warm and inviting setting.'
-        ]
+        patterns: ['surf', 'beach', 'coastal', 'waterfront'],
+        cuisine: '🏄 Coastal Dining'
+      },
+      {
+        patterns: ['inn', 'house', 'lodge', 'club'],
+        cuisine: '🏠 American Cuisine'
+      },
+      {
+        patterns: ['pizza', 'italian', 'lombardi', 'trattoria', 'romano'],
+        cuisine: '🍕 Italian'
       },
       {
         patterns: ['sushi', 'japanese', 'jiro', 'ramen', 'ichiran'],
-        cuisine: '🍣 Japanese',
-        descriptions: [
-          'Authentic Japanese cuisine with fresh sushi and traditional preparations.',
-          'Exceptional Japanese dining featuring seasonal ingredients and masterful technique.',
-          'Traditional Japanese restaurant known for its quality and attention to detail.'
-        ]
+        cuisine: '🍣 Japanese'
       },
       {
-        patterns: ['steakhouse', 'grill', 'tavern', 'chophouse'],
-        cuisine: '🥩 Steakhouse',
-        descriptions: [
-          'Premium steakhouse offering perfectly grilled meats and classic sides.',
-          'Traditional steakhouse with aged beef and extensive wine selection.',
-          'Modern grill featuring high-quality steaks and contemporary American cuisine.'
-        ]
+        patterns: ['indian', 'curry', 'tandoor', 'masala', 'bombay'],
+        cuisine: '🍛 Indian'
+      },
+      {
+        patterns: ['chinese', 'asian', 'thai', 'vietnamese'],
+        cuisine: '🥡 Asian'
+      },
+      {
+        patterns: ['mexican', 'taco', 'burrito', 'cantina'],
+        cuisine: '🌮 Mexican'
+      },
+      {
+        patterns: ['french', 'bistro', 'brasserie'],
+        cuisine: '🇫🇷 French'
+      },
+      {
+        patterns: ['british', 'english', 'fish and chips'],
+        cuisine: '🇬🇧 British'
       },
       {
         patterns: ['deli', 'delicatessen', 'sandwich', 'katz'],
-        cuisine: '🥪 Delicatessen',
-        descriptions: [
-          'Classic deli featuring traditional favorites and artisanal sandwiches.',
-          'Iconic delicatessen known for its pastrami and authentic New York atmosphere.',
-          'Traditional deli with generous portions and time-honored recipes.'
-        ]
+        cuisine: '🥪 Deli'
+      },
+      {
+        patterns: ['bar', 'lounge', 'cocktail'],
+        cuisine: '🍸 Bar & Grill'
       }
     ];
 
     // Find matching cuisine
     for (const pattern of cuisinePatterns) {
       if (pattern.patterns.some(p => name.includes(p))) {
-        const randomDescription = pattern.descriptions[Math.floor(Math.random() * pattern.descriptions.length)];
         return {
           cuisine: pattern.cuisine,
-          description: randomDescription
+          description: '' // We removed descriptions
         };
       }
     }
 
-    // Default fallback
+    // Smart fallback based on restaurant type keywords
+    if (name.includes('restaurant') || name.includes('dining')) {
+      return { cuisine: '🍽️ Fine Dining', description: '' };
+    }
+    
+    if (name.includes('bar') || name.includes('pub')) {
+      return { cuisine: '🍺 Gastropub', description: '' };
+    }
+
+    // Final fallback
     return {
-      cuisine: '🍽️ International Cuisine',
-      description: 'Popular restaurant known for its quality food and welcoming atmosphere.'
+      cuisine: '🍽️ Restaurant',
+      description: ''
     };
   },
 
@@ -135,7 +136,7 @@ export const fastRecommendationService = {
    */
   async getRestaurantRecommendations(options: FastRecommendationOptions): Promise<string> {
     // Include version in cache key to ensure new format is used
-    const cacheKey = `restaurants-googlemaps-v3-${options.location}-${JSON.stringify(options.userPreferences)}`;
+    const cacheKey = `restaurants-googlemaps-v5-${options.location}-${JSON.stringify(options.userPreferences)}`;
     const cached = await unifiedApiCache.get<string>('recommendations-api', cacheKey);
     if (cached) {
       return cached;
@@ -172,14 +173,18 @@ export const fastRecommendationService = {
         const priceLevel = restaurant.price_level ? '💰'.repeat(restaurant.price_level) : '';
         const userRatings = restaurant.user_ratings_total ? `(${restaurant.user_ratings_total} reviews)` : '';
         
-        // Infer cuisine type and generate description
+        // Infer cuisine type (without description)
         const cuisineInfo = this.getCuisineAndDescription(restaurant.name);
+        
+        // Create Google Maps link for the address
+        const address = restaurant.formatted_address || restaurant.vicinity || '';
+        const encodedAddress = encodeURIComponent(address);
+        const mapsLink = address ? `[${address}](https://www.google.com/maps/search/?api=1&query=${encodedAddress})` : '';
         
         response += `**${index + 1}. ${restaurant.name}**\n`;
         response += `${rating} ${userRatings} ${priceLevel}\n`;
         response += `${cuisineInfo.cuisine}\n`;
-        response += `📍 ${restaurant.formatted_address || restaurant.vicinity || ''}\n`;
-        response += `${cuisineInfo.description}\n`;
+        response += `📍 ${mapsLink}\n`;
         response += '\n';
       });
 

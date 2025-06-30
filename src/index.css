@@ -146,18 +146,29 @@
     
     /* Adjust messages container for fixed input */
     .messages-with-fixed-input {
-      padding-bottom: 180px; /* Increased from 140px to account for input + suggestions + spacing */
+      padding-bottom: 240px; /* Further increased to ensure text bubbles aren't covered */
+      /* Prevent white block overlays */
+      background: transparent;
+      position: relative;
+      z-index: 1;
     }
     
     /* Dynamic padding based on suggestion presence */
     .messages-no-suggestions {
-      padding-bottom: 140px; /* Reduced padding when no suggestions */
+      padding-bottom: 200px; /* Further increased to ensure text bubbles aren't covered */
+      /* Prevent white block overlays */
+      background: transparent;
+      position: relative;
+      z-index: 1;
     }
     
     /* Handle mobile Safari viewport units correctly */
     .chat-container-mobile {
       height: 100vh;
       height: -webkit-fill-available; /* Safari mobile fix */
+      /* Prevent white blocks on Safari mobile */
+      overflow: hidden;
+      position: relative;
     }
     
     /* Prevent zoom on input focus (iOS Safari) */
@@ -184,6 +195,10 @@
     .mobile-safari-viewport {
       height: 100vh;
       height: -webkit-fill-available;
+      /* Prevent white overlays and layout issues */
+      overflow: hidden;
+      position: relative;
+      background: white;
     }
     
     /* Better input handling on mobile Safari */
@@ -215,19 +230,34 @@
         right: 0 !important;
         width: 100% !important;
         max-height: 120px !important;
-        overflow: visible !important;
-        /* Remove any potential background that could cause white box */
+        overflow: hidden !important;
+        /* Prevent white box overlay */
+        background: transparent !important;
+        border-radius: 0 !important;
+        /* Ensure it doesn't create unwanted overlays */
+        z-index: 39 !important;
+      }
+      
+      /* The actual input container should have the white background, not the fixed wrapper */
+      .fixed-chat-input > div {
         background: white !important;
         border-radius: 0 !important;
+        border-top: 1px solid #e5e7eb !important;
       }
       
       /* Ensure messages don't overlap with fixed input */
       .messages-with-fixed-input {
-        padding-bottom: 200px !important; /* Increased padding to ensure clearance */
+        padding-bottom: 260px !important; /* Further increased padding to ensure clearance */
+        /* Prevent white blocks in message area */
+        position: relative !important;
+        z-index: 1 !important;
       }
       
       .messages-no-suggestions {
-        padding-bottom: 160px !important; /* Increased padding to ensure clearance */
+        padding-bottom: 220px !important; /* Further increased padding to ensure clearance */
+        /* Prevent white blocks in message area */
+        position: relative !important;
+        z-index: 1 !important;
       }
     }
   }
