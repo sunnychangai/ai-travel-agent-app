@@ -51,10 +51,5 @@
     }
   ],
   "cleanUrls": true,
-  "trailingSlash": false,
-  "functions": {
-    "src/api/**/*.js": {
-      "maxDuration": 30
-    }
-  }
+  "trailingSlash": false
 } 
