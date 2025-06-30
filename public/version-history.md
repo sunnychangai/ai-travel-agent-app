@@ -1,5 +1,13 @@
 # AI Travel Agent - Version History
 
+## Version 0.2.1 - June 30, 2025
+### 🐛 Mobile Safari Bug Fixes
+- **Fixed iPhone Safari 404 NOT_FOUND errors** when switching between apps
+- **Added Progressive Web App (PWA) support** with enhanced mobile caching and routing
+- **Implemented comprehensive error recovery system** with automatic cache clearing and health monitoring
+
+---
+
 ## Version 0.2.0 - June 27, 2025
 ### 🎯 Major Architecture Overhaul
 - **Complete Caching System Rewrite**
