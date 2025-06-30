@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
 import { SendIcon, Mic, Paperclip, ArrowUp } from "lucide-react";
 import {
   Tooltip,
@@ -48,7 +49,6 @@ const ChatInputArea = ({
   // Use local state if value/onChange props aren't provided
   const [localMessage, setLocalMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   
   // Determine if we're using controlled or uncontrolled behavior
   const isControlled = value !== undefined && onChange !== undefined;
@@ -63,10 +63,10 @@ const ChatInputArea = ({
     };
     
     const handleFocus = () => {
-      // Scroll input into view when keyboard appears on mobile
-      if (inputRef.current && window.innerWidth <= 768) {
+      // Scroll textarea into view when keyboard appears on mobile
+      if (textareaRef.current && window.innerWidth <= 768) {
         setTimeout(() => {
-          inputRef.current?.scrollIntoView({ 
+          textareaRef.current?.scrollIntoView({ 
             behavior: 'smooth', 
             block: 'center' 
           });
@@ -79,13 +79,13 @@ const ChatInputArea = ({
       setVH();
       
       // Handle viewport changes when keyboard appears/disappears
-      if (inputRef.current && window.innerWidth <= 768) {
+      if (textareaRef.current && window.innerWidth <= 768) {
         const viewportHeight = window.visualViewport?.height || window.innerHeight;
         const windowHeight = window.innerHeight;
         
         // If viewport height is significantly smaller, keyboard is likely visible
         if (viewportHeight < windowHeight * 0.75) {
-          inputRef.current.scrollIntoView({ 
+          textareaRef.current.scrollIntoView({ 
             behavior: 'smooth', 
             block: 'center' 
           });
@@ -96,9 +96,9 @@ const ChatInputArea = ({
     // Set initial viewport height
     setVH();
 
-    const input = inputRef.current;
-    if (input) {
-      input.addEventListener('focus', handleFocus);
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.addEventListener('focus', handleFocus);
     }
     
     window.addEventListener('resize', handleResize);
@@ -110,8 +110,8 @@ const ChatInputArea = ({
     }
     
     return () => {
-      if (input) {
-        input.removeEventListener('focus', handleFocus);
+      if (textarea) {
+        textarea.removeEventListener('focus', handleFocus);
       }
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', setVH);
@@ -146,12 +146,22 @@ const ChatInputArea = ({
     }
   }, [message, isDisabled, isLoading, onSend, onSendMessage, updateMessage]);
 
-  // Memoize the keyboard event handler
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Auto-resize textarea based on content
+  const adjustTextareaHeight = useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+    }
+  }, []);
+
+  // Memoize the keyboard event handler - now supports line breaks
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      // Regular Enter submits the message
       e.preventDefault();
       handleSendMessage();
     }
+    // Shift+Enter creates line breaks (default behavior when we don't prevent)
   }, [handleSendMessage]);
 
   // Memoize suggestion click handler
@@ -165,10 +175,16 @@ const ChatInputArea = ({
     }
   }, [updateMessage, onSuggestionClick]);
 
-  // Memoize onChange handler for the input
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  // Memoize onChange handler for the textarea
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     updateMessage(e.target.value);
-  }, [updateMessage]);
+    adjustTextareaHeight();
+  }, [updateMessage, adjustTextareaHeight]);
+
+  // Effect to adjust height when message changes externally (controlled mode)
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [message, adjustTextareaHeight]);
 
   return (
     <div className="flex flex-col w-full">
@@ -182,31 +198,46 @@ const ChatInputArea = ({
         />
       )}
       
-      {/* Input area - redesigned to match landing page */}
-      <div className="relative w-full pb-4">
-        <div className="flex items-center gap-3 w-full">
-          <input
-            type="text"
-            value={message}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder || "Ask about your next destination..."}
-            className={cn(
-              "flex-1 h-12 px-6 rounded-full bg-gray-100 border-0 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500",
-              // Mobile-specific styling
-              "text-base md:text-sm", // 16px on mobile to prevent zoom, 14px on desktop
-              isDisabled ? "bg-gray-200 text-gray-500" : "bg-gray-100 text-gray-700",
-              isLoading ? "border-blue-300" : "",
-              error ? "focus:ring-red-500" : ""
+      {/* Input area - now using textarea for multi-line support */}
+      <div className="relative w-full pb-4 chat-input-container">
+        <div className="flex items-end gap-3 w-full">
+          <div className="flex-1 relative">
+            <textarea
+              value={message}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder || "Ask about your next destination... (Shift+Enter for new line)"}
+              className={cn(
+                "w-full min-h-[48px] max-h-[120px] px-6 py-3 rounded-3xl bg-gray-100 border-0 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none chat-textarea",
+                // Mobile-specific styling
+                "text-base md:text-sm", // 16px on mobile to prevent zoom, 14px on desktop
+                isDisabled ? "bg-gray-200 text-gray-500" : "bg-gray-100 text-gray-700",
+                isLoading ? "border-blue-300" : "",
+                error ? "focus:ring-red-500" : "",
+                // Ensure proper alignment and spacing
+                "leading-relaxed overflow-y-auto"
+              )}
+              disabled={isDisabled}
+              ref={textareaRef}
+              rows={1}
+            />
+            {/* Hint text for users */}
+            {message.trim() && (
+              <>
+                <div className="absolute -bottom-6 left-2 text-xs text-gray-400 hidden md:block">
+                  Enter to send • Shift+Enter for new line
+                </div>
+                <div className="absolute -bottom-6 left-2 text-xs text-gray-400 block md:hidden">
+                  Enter to send • Shift+Enter for line break
+                </div>
+              </>
             )}
-            disabled={isDisabled}
-            ref={inputRef}
-          />
+          </div>
           <button
             onClick={handleSendMessage}
             disabled={isDisabled || !message.trim()}
             className={cn(
-              "h-12 w-12 flex items-center justify-center rounded-full flex-shrink-0",
+              "h-12 w-12 flex items-center justify-center rounded-full flex-shrink-0 mb-0",
               isDisabled || !message.trim()
                 ? "bg-blue-300 text-white cursor-not-allowed opacity-50"
                 : "bg-blue-500 text-white hover:bg-blue-600"

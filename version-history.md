@@ -1,5 +1,23 @@
 # AI Travel Agent - Version History
 
+## Version 0.2.2 - June 30, 2025
+### ✨ New Features
+- **Enhanced Chat Input with Line Breaks (Gunner)**
+  - Users can now press Shift+Enter to create line breaks in chat messages for better prompt formatting
+  - Enter key submits the message (intuitive behavior)
+  - Auto-resizing text area adapts to message length with smooth animations
+  - Mobile-friendly design with proper keyboard handling
+  - Visual hints show users how to send messages vs. create line breaks
+
+### 🐛 Bug Fixes
+- **Fixed Feedback Submission System (Gunner)**
+  - Resolved database RLS policy issues preventing users from submitting feedback
+  - Enhanced error handling with detailed logging and retry mechanisms
+  - Improved email notification system with better error recovery
+
+
+---
+
 ## Version 0.2.1 - June 30, 2025
 ### 🐛 Bug Fixes
 - **Fixed iPhone Safari 404 NOT_FOUND errors** when switching between apps

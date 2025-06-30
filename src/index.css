@@ -176,6 +176,36 @@
     textarea {
       font-size: 16px; /* Prevents zoom on iOS */
     }
+
+    /* Better textarea styling for chat input */
+    .chat-textarea {
+      /* Custom scrollbar for mobile */
+      scrollbar-width: thin;
+      scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+    }
+
+    .chat-textarea::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .chat-textarea::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .chat-textarea::-webkit-scrollbar-thumb {
+      background-color: rgba(156, 163, 175, 0.5);
+      border-radius: 2px;
+    }
+
+    .chat-textarea::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(156, 163, 175, 0.7);
+    }
+
+    /* Ensure chat input area doesn't create layout issues */
+    .chat-input-container {
+      /* Better spacing for multi-line input */
+      padding-bottom: max(20px, env(safe-area-inset-bottom));
+    }
     
     /* Ensure keyboard doesn't cover input */
     .keyboard-adjust {
