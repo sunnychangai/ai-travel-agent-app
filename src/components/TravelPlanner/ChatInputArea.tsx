@@ -206,7 +206,7 @@ const ChatInputArea = ({
               value={message}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
-              placeholder={placeholder || "Ask about your next destination... (Shift+Enter for new line)"}
+              placeholder={placeholder || "Ask about your next destination..."}
               className={cn(
                 "w-full min-h-[48px] max-h-[120px] px-6 py-3 rounded-3xl bg-gray-100 border-0 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none chat-textarea",
                 // Mobile-specific styling
